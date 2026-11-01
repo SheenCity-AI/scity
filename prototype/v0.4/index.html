@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>SheenCity AI 教学平台 · 原型 v0.4</title>
+<style>
+:root{
+  --bg:#0B0B0E;--p1:#131318;--p2:#1a1a21;--p3:#22222b;--ln:rgba(255,255,255,.08);--ln2:rgba(255,255,255,.14);
+  --t1:#F2F2F4;--t2:rgba(242,242,244,.66);--t3:rgba(242,242,244,.42);
+  --red:#E8312F;--red2:#ff5a4e;--rl:#ff8a7a;--glow:0 0 24px rgba(232,49,47,.45);
+  --c1:#3987e5;--c2:#d95926;--c3:#199e70;--c4:#c98500;--gold:#ffd08a;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;font-family:"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif;color:var(--t1);font-size:14px;line-height:1.55}
+button{font:inherit;color:inherit;cursor:pointer}
+input,textarea{font:inherit;color:inherit}
+.num{font-family:"DIN Alternate","DejaVu Sans Mono",monospace;letter-spacing:.3px}
+.hide{display:none!important}
+.app{width:1440px;height:900px;margin:0 auto;background:var(--bg);position:relative;overflow:hidden;color:var(--t1)}
+.app::before{content:"";position:absolute;inset:0;background:radial-gradient(900px 500px at 78% -10%,rgba(232,49,47,.15),transparent 60%),radial-gradient(700px 500px at -10% 110%,rgba(57,135,229,.07),transparent 60%);pointer-events:none}
+/* HUD */
+.hud{position:absolute;top:0;left:0;right:0;height:64px;display:flex;align-items:center;padding:0 24px;gap:16px;z-index:5}
+.mark{width:34px;height:34px;border-radius:10px;background:var(--red);display:grid;place-items:center;font-weight:900;box-shadow:var(--glow)}
+.who{display:flex;align-items:center;gap:10px}
+.ava{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#ffb199,#E8312F);display:grid;place-items:center;font-weight:800;position:relative;flex-shrink:0}
+.ava.t{background:linear-gradient(135deg,#9cc3f5,#3987e5)}.ava.k{background:linear-gradient(135deg,#9be3c6,#199e70)}
+.ava b{position:absolute;right:-6px;bottom:-4px;background:#000;border:1px solid var(--ln2);font-size:10px;border-radius:8px;padding:0 4px}
+.xp{width:150px;height:5px;border-radius:3px;background:rgba(255,255,255,.1);overflow:hidden;margin-top:4px}
+.xp i{display:block;height:100%;background:linear-gradient(90deg,var(--red),var(--red2));box-shadow:var(--glow);transition:width .6s}
+.res{margin-left:auto;display:flex;gap:10px;align-items:center}
+.res>div{display:flex;align-items:center;gap:7px;background:rgba(255,255,255,.05);border:1px solid var(--ln);border-radius:20px;padding:5px 14px 5px 10px;font-size:13px;color:var(--t2);cursor:default}
+.res>div b{color:var(--t1);font-size:15px}
+.gem{width:13px;height:13px;transform:rotate(45deg);background:linear-gradient(135deg,#ff8a7a,var(--red));border-radius:3px;box-shadow:var(--glow);display:inline-block}
+.roles{display:flex;gap:2px;background:rgba(255,255,255,.04);border:1px solid var(--ln);border-radius:10px;padding:3px;margin-left:8px}
+.roles button{border:0;background:none;font-size:12px;color:var(--t3);padding:4px 10px;border-radius:7px}
+.roles button.on{background:var(--p3);color:var(--t1)}
+.proto{font-size:11px;color:var(--gold);border:1px solid rgba(255,208,138,.35);border-radius:6px;padding:1px 6px}
+/* rail */
+.rail{position:absolute;left:0;top:64px;bottom:0;width:72px;display:flex;flex-direction:column;align-items:center;gap:8px;padding-top:16px;z-index:5}
+.rail a{width:52px;height:52px;border-radius:14px;display:grid;place-items:center;color:var(--t3);font-size:11px;text-align:center;line-height:1.2;cursor:pointer;position:relative}
+.rail a i{display:block;font-style:normal;font-size:19px;margin-bottom:1px}
+.rail a:hover{color:var(--t2)}
+.rail a.on{background:rgba(232,49,47,.14);color:var(--t1);box-shadow:inset 0 0 0 1px rgba(232,49,47,.5)}
+.rail a .dot{position:absolute;top:8px;right:9px;width:7px;height:7px;border-radius:50%;background:var(--red);box-shadow:var(--glow)}
+.rail .sp{flex:1}
+.view{position:absolute;left:72px;top:64px;right:0;bottom:0;display:none}
+.view.on{display:block}
+.pg{padding:8px 28px 24px;height:100%;overflow:auto}
+.pg::-webkit-scrollbar{width:6px}.pg::-webkit-scrollbar-thumb{background:var(--p3);border-radius:3px}
+.h1{font-size:28px;font-weight:800;letter-spacing:1px}
+.h1 small{font-size:14px;color:var(--t3);font-weight:400;margin-left:12px;letter-spacing:0}
+.h2{font-size:17px;font-weight:800}
+.mut{color:var(--t3);font-size:12px}
+.sub{color:var(--t2)}
+.panel{background:var(--p1);border:1px solid var(--ln);border-radius:20px;padding:18px;position:relative}
+.row{display:flex;gap:16px}
+.b{border:1px solid var(--ln2);background:rgba(255,255,255,.04);color:var(--t1);padding:6px 14px;border-radius:18px;font-size:13px;white-space:nowrap}
+.b:hover{border-color:rgba(255,255,255,.3)}
+.b.p{background:var(--red);border-color:var(--red);box-shadow:var(--glow)}
+.b.p:hover{background:var(--red2)}
+.b.sm{padding:3px 10px;font-size:12px}
+.acts{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.tg{font-size:11px;border-radius:4px;padding:0 6px;white-space:nowrap;flex-shrink:0;display:inline-block}
+.tg.m{background:rgba(232,49,47,.18);color:var(--rl)}.tg.s{background:rgba(57,135,229,.18);color:#8ab8f0}.tg.o{background:rgba(25,158,112,.18);color:#6fd3ab}.tg.y{background:rgba(201,133,0,.18);color:#f0c060}.tg.g{background:rgba(255,255,255,.08);color:var(--t2)}
+.chipx{font-size:11px;border-radius:10px;padding:1px 8px;border:1px solid var(--ln2);color:var(--t2);white-space:nowrap}
+.bar{height:5px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden}.bar i{display:block;height:100%;background:var(--red)}
+.note{font-size:12px;color:#f0c060;background:rgba(201,133,0,.10);border:1px solid rgba(201,133,0,.3);border-radius:10px;padding:7px 12px}
+.tabs{display:flex;gap:6px;margin-top:14px}
+.tabs button{border:1px solid var(--ln);background:none;color:var(--t3);border-radius:18px;padding:5px 14px;font-size:13px}
+.tabs button.on{background:var(--p3);color:var(--t1);border-color:var(--ln2)}
+/* ========== 助理 ========== */
+.chatcol{position:absolute;left:0;top:0;bottom:0;width:700px;display:flex;flex-direction:column;padding:4px 28px 20px}
+.stream{flex:1;overflow:auto;display:flex;flex-direction:column;gap:16px;padding:10px 4px 14px 0}
+.stream::-webkit-scrollbar{width:4px}.stream::-webkit-scrollbar-thumb{background:var(--p3)}
+.stream .spacer{flex:1}
+.am{display:flex;gap:12px;max-width:630px;animation:up .3s ease both}
+.am .sa{width:30px;height:30px;border-radius:9px;background:var(--red);display:grid;place-items:center;font-weight:900;font-size:13px;flex-shrink:0;box-shadow:var(--glow)}
+.am .c{flex:1;min-width:0}
+.am .c p{margin-bottom:6px}
+.um{align-self:flex-end;background:var(--p2);border:1px solid var(--ln);padding:10px 14px;border-radius:16px 16px 4px 16px;max-width:520px;animation:up .3s ease both}
+@keyframes up{from{opacity:0;transform:translateY(8px)}to{opacity:1}}
+.mem{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 8px}
+.mem span{font-size:12px;color:var(--t2);background:rgba(57,135,229,.10);border:1px solid rgba(57,135,229,.28);border-radius:12px;padding:1px 9px;cursor:pointer}
+.mem span.h{background:none;border:0;padding-left:0;color:var(--t3);cursor:default}
+.run{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--t2);background:var(--p1);border:1px solid var(--ln);border-radius:10px;padding:8px 12px;margin:4px 0 8px}
+.ok{width:16px;height:16px;border-radius:50%;background:var(--c3);display:grid;place-items:center;font-size:10px;flex-shrink:0}
+.spin{width:14px;height:14px;border-radius:50%;border:2px solid var(--red);border-top-color:transparent;animation:sp 1s linear infinite;flex-shrink:0}
+@keyframes sp{to{transform:rotate(360deg)}}
+.cost{margin-left:auto;color:var(--t3)}
+.brief{background:linear-gradient(135deg,rgba(232,49,47,.10),rgba(255,255,255,.02));border:1px solid rgba(232,49,47,.25);border-radius:16px;padding:12px 16px}
+.brief .r{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--ln)}
+.brief .r:first-of-type{border:0}
+.brief .r .x{margin-left:auto;color:var(--t3);font-size:12px;white-space:nowrap}
+.sugg{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.sugg button{border:1px solid var(--ln2);background:rgba(255,255,255,.03);border-radius:16px;padding:4px 12px;font-size:12.5px;color:var(--t2)}
+.sugg button:hover{border-color:var(--red);color:var(--t1)}
+.input{background:var(--p1);border:1px solid var(--ln2);border-radius:18px;padding:12px 14px;box-shadow:0 10px 40px rgba(0,0,0,.5)}
+.input textarea{width:100%;border:0;outline:0;background:none;resize:none;height:26px;font-size:15px}
+.input textarea::placeholder{color:var(--t3)}
+.input .bt{display:flex;align-items:center;gap:8px;margin-top:8px}
+.k{font-size:12px;color:var(--t3);border:1px solid var(--ln);border-radius:6px;padding:1px 7px}
+.send{margin-left:auto;width:34px;height:34px;border-radius:50%;background:var(--red);display:grid;place-items:center;box-shadow:var(--glow);border:0}
+.mic{width:34px;height:34px;border-radius:50%;border:1px solid var(--ln2);display:grid;place-items:center;color:var(--t2);background:none}
+.stagewrap{position:absolute;left:700px;right:24px;top:4px;bottom:20px}
+.stg{height:100%;border-radius:22px;border:1px solid var(--ln);background:var(--p1);overflow:hidden;position:relative;display:flex;flex-direction:column}
+.stg .lab{position:absolute;top:16px;left:18px;font-size:11px;letter-spacing:3px;color:var(--t3);z-index:2}
+.hero{flex:1;background-size:cover;background-position:center;position:relative;min-height:200px}
+.hero::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,11,14,.0) 45%,rgba(19,19,24,1))}
+.stg .ft{padding:0 20px 20px;margin-top:-80px;position:relative;z-index:1}
+.stg h3{font-size:22px}
+.thumbs{display:flex;gap:10px;margin-top:12px}
+.thumbs div{flex:1;height:66px;border-radius:10px;background-size:cover;background-position:center;border:1px solid var(--ln2);cursor:pointer}
+.thumbs div.on{border-color:var(--red);box-shadow:var(--glow)}
+.warn{display:inline-block;margin-top:10px;font-size:12px;color:#ffb36b;background:rgba(201,133,0,.12);border:1px solid rgba(201,133,0,.35);border-radius:8px;padding:4px 10px}
+.stgpad{padding:52px 22px 20px;overflow:auto;height:100%}
+.steps .st{display:flex;gap:10px;align-items:center;padding:6px 0;color:var(--t3);font-size:13px}
+.steps .st.d{color:var(--t1)}.steps .st.r{color:var(--t1)}
+.steps .st i{width:16px;height:16px;border-radius:50%;border:2px solid var(--ln2);flex-shrink:0}
+.steps .st.d i{background:var(--c3);border-color:var(--c3)}
+.steps .st.r i{border-color:var(--red);border-top-color:transparent;animation:sp 1s linear infinite}
+/* ========== 知识 ========== */
+.kn{position:absolute;inset:0}
+.kn .graph{position:absolute;left:0;top:0;bottom:0;right:380px}
+.kn .side{position:absolute;right:24px;top:8px;bottom:20px;width:340px;display:flex;flex-direction:column;gap:14px}
+.kn .hdr{position:absolute;left:28px;top:8px;z-index:2}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--t2);margin-top:8px;align-items:center;flex-wrap:wrap}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.ramp{display:inline-block;width:80px;height:8px;border-radius:4px;background:linear-gradient(90deg,#3a1d1d,#8a2422,#E8312F,#ff8a7a);vertical-align:middle;margin:0 6px}
+.gnode{cursor:pointer}
+.gnode:hover circle.core{stroke:#fff}
+.kstat{display:flex;gap:22px;margin-top:10px}
+.kstat b{display:block;font-size:24px}
+.cls{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.cls .r{display:flex;align-items:center;gap:10px;font-size:13px}
+.cls .r span:first-child{width:96px;color:var(--t2)}
+.cls .r .bar{flex:1;height:8px}
+/* ========== 课题 ========== */
+.tcard{display:flex;gap:16px;background:var(--p1);border:1px solid var(--ln);border-radius:20px;overflow:hidden;cursor:pointer;transition:.2s}
+.tcard:hover{border-color:var(--ln2);transform:translateY(-2px)}
+.tcard .im{width:280px;flex-shrink:0;background-size:cover;background-position:center;position:relative}
+.tcard .bd{padding:18px 20px 18px 0;flex:1}
+.path{display:flex;align-items:center;margin-top:14px}
+.nd{display:flex;flex-direction:column;align-items:center;width:84px;flex-shrink:0;font-size:12px;color:var(--t3);text-align:center}
+.nd .o{width:30px;height:30px;border-radius:50%;border:2px solid var(--ln2);display:grid;place-items:center;margin-bottom:5px;background:rgba(0,0,0,.4);font-weight:800;font-size:12px}
+.nd.d .o{background:var(--red);border-color:var(--red);color:#fff}.nd.d{color:var(--t2)}
+.nd.c .o{border-color:var(--red);color:#fff;box-shadow:0 0 0 6px rgba(232,49,47,.18),var(--glow);width:38px;height:38px}.nd.c{color:var(--t1)}
+.lk{flex:1;height:2px;background:var(--ln2);margin-bottom:22px;min-width:10px}.lk.d{background:var(--red)}
+.small-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:12px}
+.mini{background:var(--p1);border:1px solid var(--ln);border-radius:16px;padding:14px}
+.mini.dis{opacity:.5}
+.qq{background:#0f1a2a;border-radius:14px;overflow:hidden;border:1px solid rgba(57,135,229,.35)}
+.qq .qh{background:linear-gradient(#2d6fc0,#1d4f90);padding:6px 12px;font-size:13px;display:flex;justify-content:space-between}
+.qq .qb{padding:10px 12px;height:170px;overflow:auto;font-family:"SimSun","Songti SC",serif;font-size:13px;color:#d9e6f7}
+.qq .qb p{margin-bottom:8px}.qq .qb p b{color:#7fb2f0;font-weight:normal}.qq .qb p.me b{color:#6fd3ab}
+.qq .qi{display:flex;gap:6px;padding:6px;background:#0b1422}.qq .qi input{flex:1;background:#14233a;border:1px solid rgba(57,135,229,.35);border-radius:6px;padding:4px 8px;outline:0}
+.drop{border:1.5px dashed var(--ln2);border-radius:12px;padding:16px;text-align:center;color:var(--t3);cursor:pointer}
+.drop.ok{border-color:var(--c3);color:#6fd3ab;background:rgba(25,158,112,.08)}
+/* 作品集网页 */
+.pf{background:#f4f1ec;color:#1b1b1b;border-radius:16px;overflow:hidden;margin-top:14px}
+.pf .top{height:200px;background:url(img/i-518.jpg) center/cover;position:relative}
+.pf .top::after{content:"";position:absolute;inset:0;background:linear-gradient(transparent 30%,rgba(0,0,0,.65))}
+.pf .top>div{position:absolute;left:26px;bottom:18px;color:#fff;z-index:1}
+.pf .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:18px 26px 24px}
+.pf .w{border-radius:10px;overflow:hidden;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.pf .w .im{height:120px;background-size:cover;background-position:center}
+.pf .w .t{padding:8px 10px;font-size:13px}
+.pf .w .t span{display:block;font-size:11px;color:#777}
+.url{display:flex;align-items:center;gap:8px;background:var(--p2);border:1px solid var(--ln);border-radius:10px;padding:6px 10px;font-size:13px;color:var(--t2)}
+/* ========== OPC ========== */
+.q{background:var(--p1);border:1px solid var(--ln);border-radius:18px;overflow:hidden;display:flex;flex-direction:column}
+.q .im{height:120px;background-size:cover;background-position:center;position:relative}
+.q .im span{position:absolute;top:10px;left:10px;background:rgba(0,0,0,.72)!important;padding:1px 8px;border-radius:6px}
+.q .bd{padding:14px 16px;flex:1;display:flex;flex-direction:column}
+.q h4{font-size:15px}
+.q .rw{display:flex;gap:6px;margin-top:8px;align-items:center;font-size:12px;color:var(--t2);flex-wrap:wrap}
+.star{color:#ffb36b;letter-spacing:1px}
+.reward{margin-left:auto;color:var(--gold);font-weight:700}
+.qgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:12px}
+.studio{border-radius:18px;padding:18px;background:linear-gradient(135deg,rgba(25,158,112,.14),rgba(255,255,255,.02));border:1px solid rgba(25,158,112,.35)}
+.kpi{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-top:14px}
+.kpi .panel b{display:block;font-size:26px;margin-top:2px}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--ln);font-size:13px}
+th{color:var(--t3);font-weight:500}
+/* ========== 我 ========== */
+.wallet{background:linear-gradient(135deg,#2a1214,#4a1517 60%,#9a2220);border:0}
+.hexes{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+.hx{background:var(--p2);border:1px solid var(--ln);border-radius:14px;padding:12px}
+.hx .lv{font-size:22px;font-weight:800}
+/* 弹层 */
+.mask{position:absolute;inset:0;background:rgba(0,0,0,.6);display:grid;place-items:center;z-index:30;backdrop-filter:blur(4px)}
+.modal{background:var(--p1);border:1px solid var(--ln2);border-radius:20px;width:460px;padding:24px}
+.toast{position:absolute;top:74px;left:50%;transform:translateX(-50%);background:#fff;color:#111;padding:8px 18px;border-radius:20px;z-index:40;font-size:13px;opacity:0;transition:.3s;pointer-events:none;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+.toast.on{opacity:1}
+.xpfx{position:absolute;z-index:41;color:var(--gold);font-weight:800;font-size:18px;pointer-events:none;animation:fly 1.4s ease forwards;text-shadow:0 0 12px rgba(255,208,138,.6)}
+@keyframes fly{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(-50px)}}
+/* 开场 */
+.onb{position:absolute;inset:0;z-index:20;background:radial-gradient(800px 500px at 50% 40%,rgba(232,49,47,.22),transparent 60%),#07070a;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.onb .orb{width:120px;height:120px;border-radius:36px;background:var(--red);display:grid;place-items:center;font-size:52px;font-weight:900;box-shadow:0 0 80px rgba(232,49,47,.6);animation:pulse 2.4s ease-in-out infinite}
+@keyframes pulse{50%{box-shadow:0 0 120px rgba(232,49,47,.85)}}
+.onb h1{font-size:34px;margin-top:30px}
+.onb .lines{margin-top:18px;color:var(--t2);font-size:16px;line-height:2}
+.onb .four{display:flex;gap:14px;margin-top:30px}
+.onb .four div{width:200px;background:rgba(255,255,255,.04);border:1px solid var(--ln);border-radius:16px;padding:16px;text-align:left}
+.onb .four b{display:block;font-size:15px;margin-bottom:4px}
+.tip{position:fixed;pointer-events:none;background:#000;border:1px solid var(--ln2);color:#fff;font-size:12px;padding:4px 8px;border-radius:6px;display:none;z-index:60;max-width:260px}
+
+/* 知识泡泡 */
+.app{--gUn:rgba(242,242,244,.28);--glink:rgba(255,255,255,.12)}
+.gsvg{display:block}
+.glink{stroke:var(--glink);stroke-width:1}
+.ghub{fill:var(--red)}.ghalo{fill:none;stroke:var(--red);stroke-opacity:.35;stroke-dasharray:2 4;animation:sp 30s linear infinite;transform-origin:0 0}
+.ghubt{fill:#fff;font-weight:800;font-size:18px}
+.glab{fill:var(--t1);font-weight:600;pointer-events:none}.glab.on{fill:#fff}.glab.un{fill:var(--t3);font-weight:400}
+.gval{fill:var(--t1);font-weight:800;pointer-events:none;font-family:'DIN Alternate','DejaVu Sans Mono',monospace}.gval.on{fill:#fff}
+.gnode{cursor:grab}
+.gnode.pulse .gbub{animation:pz 1.6s ease-in-out 3}
+@keyframes pz{50%{stroke-width:6;stroke:var(--gold)}}
+.legend .lg2{display:inline-flex;align-items:center;gap:6px}
+.legend .dd,.legend .sz{display:inline-flex;gap:3px;align-items:center}
+.legend .dd i{width:10px;height:10px;border-radius:50%;background:var(--c1);margin:0}
+.legend .sz i{border-radius:50%;background:var(--t3);margin:0}.legend .sz i:nth-child(1){width:6px;height:6px}.legend .sz i:nth-child(2){width:10px;height:10px}.legend .sz i:nth-child(3){width:14px;height:14px}
+.legend .dash{width:12px;height:12px;border-radius:50%;border:1.5px dashed var(--t2);background:none;margin:0}
+.legend .un{width:10px;height:10px;border-radius:50%;border:1.5px solid var(--gUn);background:none;margin:0}
+/* 主题切换 */
+.thm{border:1px solid var(--ln2);background:rgba(255,255,255,.04);border-radius:10px;padding:4px 10px;font-size:12px;color:var(--t2);margin-left:6px}
+.dk{--t1:#F2F2F4;--t2:rgba(242,242,244,.7);--t3:rgba(242,242,244,.5);--ln2:rgba(255,255,255,.22);color:var(--t1)}
+/* ================= 浅色主题（飞书感 + 年轻） ================= */
+body.light{background:#e9ebef}
+body.light .app{--bg:#F5F6F8;--p1:#FFFFFF;--p2:#F4F5F7;--p3:#EBEDF0;--ln:#E8EAED;--ln2:#D9DCE1;--t1:#1F2329;--t2:#4E5969;--t3:#8F959E;--rl:#D9302B;--gold:#C77800;--glow:0 4px 14px rgba(232,49,47,.28);--gUn:#C9CDD4;--glink:rgba(31,35,41,.10)}
+body.light .app::before{background:radial-gradient(700px 420px at 85% -8%,rgba(255,138,122,.22),transparent 60%),radial-gradient(640px 460px at -5% 105%,rgba(51,112,255,.12),transparent 60%),radial-gradient(500px 300px at 45% 40%,rgba(255,208,138,.10),transparent 70%)}
+body.light .panel,body.light .q,body.light .tcard,body.light .mini,body.light .stg{box-shadow:0 1px 2px rgba(31,35,41,.04),0 6px 24px rgba(31,35,41,.05)}
+body.light .res>div{background:#fff;box-shadow:0 1px 3px rgba(31,35,41,.06)}
+body.light .roles{background:#fff}.body.light .roles button.on{background:var(--p3)}
+body.light .b{background:#fff}
+body.light .b.p{background:var(--red);color:#fff}
+body.light .rail a.on{background:#fff;box-shadow:0 4px 14px rgba(232,49,47,.18),inset 0 0 0 1px rgba(232,49,47,.35);color:var(--red)}
+body.light .rail a:hover{background:rgba(255,255,255,.6)}
+body.light .input{box-shadow:0 8px 30px rgba(31,35,41,.08)}
+body.light .um{background:linear-gradient(135deg,#FFEDEA,#FFF5F0);border-color:#FAD4CE}
+body.light .brief{background:linear-gradient(135deg,#FFF1EE,#FFFFFF 70%);border-color:#FAD4CE}
+body.light .run{background:#fff}
+body.light .mem span{background:#EEF3FF;border-color:#C9D8FF;color:#3370FF}
+body.light .tg.m{background:#FFE9E7;color:#D9302B}.body.light .tg.s{}
+body.light .tg.s{background:#E8F0FF;color:#3370FF}body.light .tg.o{background:#E3F6EE;color:#14875D}body.light .tg.y{background:#FFF3DC;color:#B26A00}body.light .tg.g{background:#F2F3F5;color:#646A73}
+body.light .hero::after{background:linear-gradient(180deg,rgba(255,255,255,0) 45%,#fff)}
+body.light .stg .lab{color:var(--t3)}
+body.light .stg .lab.onimg{color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.5)}
+body.light .q .im span{background:rgba(255,255,255,.94)!important}
+body.light .warn{background:#FFF6E5;border-color:#F5D79E;color:#B26A00}
+body.light .note{background:#FFF8EB;border-color:#F5D79E;color:#9A5B00}
+body.light .chipx{background:#fff}
+body.light .wallet{background:linear-gradient(135deg,#E8312F,#FF7A59 70%,#FFB38A);color:#fff}
+body.light .wallet,body.light .wallet span,body.light .wallet .mut,body.light .wallet .num,body.light .wallet .h2{color:#fff!important}
+body.light .mark,body.light .orb,body.light .am .sa,body.light .send{color:#fff}
+body.light .hx{background:#F7F8FA}
+body.light .studio{background:linear-gradient(135deg,#E6F7EF,#fff 70%);border-color:#BFE6D3}
+body.light .url{background:#fff}
+body.light .xp{background:#E5E6EB}
+body.light .ava b{background:#fff}
+body.light .tabs button.on{background:#fff;box-shadow:0 1px 3px rgba(31,35,41,.08)}
+body.light .tcard:hover{box-shadow:0 10px 30px rgba(31,35,41,.10)}
+body.light .nd .o{background:#fff}
+body.light .nd.d .o{background:var(--red);color:#fff;border-color:var(--red)}
+body.light .nd.c .o{color:var(--red);background:#fff}
+body.light .dk .nd.c .o{color:#fff;background:rgba(0,0,0,.4)}
+body.light .dk .nd .o{background:rgba(0,0,0,.4)}
+body.light .onb{background:radial-gradient(700px 460px at 50% 38%,rgba(255,138,122,.35),transparent 62%),radial-gradient(600px 400px at 80% 90%,rgba(51,112,255,.12),transparent 60%),#F7F8FA}
+body.light .onb .four div{background:#fff;box-shadow:0 6px 24px rgba(31,35,41,.06)}
+body.light .onb .orb{box-shadow:0 20px 60px rgba(232,49,47,.35)}
+body.light .mask{background:rgba(31,35,41,.35)}
+body.light .gnode .glab.on{fill:#fff}
+body.light .kn::before{content:"";position:absolute;left:0;top:0;bottom:0;right:380px;background-image:radial-gradient(rgba(31,35,41,.07) 1px,transparent 1px);background-size:22px 22px;pointer-events:none}
+body.light table th{color:var(--t3)}
+body.light input.sc,body.light input.pay{background:#fff!important}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+
+<!-- 开场：没有课程也没有任务时 -->
+<div class="onb" id="onb">
+  <div class="orb">S</div>
+  <h1>你好，我是你的 SCity 助手</h1>
+  <div class="lines">懂城市更新和空间智能的那种。<br>在学校，我陪你上课、做项目、接活；毕业后，我陪你工作。</div>
+  <div class="four">
+    <div><b>✦ 助理</b><span class="mut">有事直接说，我来办</span></div>
+    <div><b>◈ 知识</b><span class="mut">你学会的，会长成一张图</span></div>
+    <div><b>▦ 课题</b><span class="mut">学院的课题和你的作品集</span></div>
+    <div><b>◆ OPC</b><span class="mut">真实项目，真实收入</span></div>
+  </div>
+  <div class="acts" style="margin-top:30px;justify-content:center"><button class="b p" style="padding:10px 34px;font-size:15px" onclick="startApp()">开始</button></div>
+  <div class="mut" style="margin-top:16px">通过飞书登录 · 你的知识库存在你自己的飞书里，数据归你本人所有</div>
+</div>
+
+<div class="hud">
+  <div class="mark">S</div>
+  <div class="who" id="who"></div>
+  <span class="proto">原型 v0.4 · 示例数据</span>
+  <div class="res" id="res"></div>
+  <button class="thm" id="thm" onclick="toggleTheme()">☀ 浅色</button>
+  <div class="roles" id="roles"><button data-r="stu" class="on">学生</button><button data-r="tea">老师</button><button data-r="ops">孵化器运营</button></div>
+</div>
+<div class="rail" id="rail">
+  <a data-v="ai" class="on"><i>✦</i>助理</a>
+  <a data-v="kn"><i>◈</i>知识</a>
+  <a data-v="tp"><i>▦</i>课题<span class="dot"></span></a>
+  <a data-v="opc"><i>◆</i>OPC</a>
+  <div class="sp"></div>
+  <a data-v="me"><i>◍</i>我</a>
+</div>
+
+<!-- ============ 助理 ============ -->
+<section class="view on" id="v-ai">
+  <div class="chatcol">
+    <div class="stream" id="stream"><div class="spacer"></div></div>
+    <div class="sugg" id="sugg"></div>
+    <div class="input">
+      <textarea id="ask" placeholder="和助理说点什么，或者把文件拖进来…"></textarea>
+      <div class="bt"><span class="k">/ 指令</span><span class="k">@ 课题</span><span class="k"># 记忆</span><span class="mut" id="ctx" style="margin-left:6px">当前：筑年 · 第 4 课</span><button class="mic" style="margin-left:auto" onclick="toast('语音输入（演示）')">🎙</button><button class="send" onclick="send()">↑</button></div>
+    </div>
+  </div>
+  <div class="stagewrap"><div class="stg" id="stage"></div></div>
+</section>
+
+<!-- ============ 知识 ============ -->
+<section class="view" id="v-kn">
+  <div class="kn">
+    <div class="hdr">
+      <div class="h1" id="knTitle">知识<small>你学会的，会长成一张图 · 存在你的飞书多维表格里</small></div>
+      <div class="tabs" id="knTabs"><button data-f="all" class="on">全部</button><button data-f="zn">筑年</button><button data-f="cj">空间采集</button><button data-f="side">只看支线</button></div>
+      <div class="legend" id="knLegend"></div>
+    </div>
+    <div class="graph" id="graph"></div>
+    <div class="side" id="knSide"></div>
+  </div>
+</section>
+
+<!-- ============ 课题 ============ -->
+<section class="view" id="v-tp"><div class="pg" id="tpPg"></div></section>
+
+<!-- ============ OPC ============ -->
+<section class="view" id="v-opc"><div class="pg" id="opcPg"></div></section>
+
+<!-- ============ 我 ============ -->
+<section class="view" id="v-me"><div class="pg" id="mePg"></div></section>
+
+<div class="mask hide" id="mask"><div class="modal" id="modal"></div></div>
+<div class="toast" id="toast"></div>
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const S={role:'stu',view:'ai',sub:1820,subT:3000,bal:260,xp:64,lv:7,qqLeft:5,uploaded:false,submitted:false,kFilter:'all',kSel:null,tp:null,opcTab:'board'};
+const fmt=n=>n.toLocaleString('en-US');
+function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('on');clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove('on'),2300)}
+function spend(n){const a=Math.min(S.sub,n);S.sub-=a;S.bal-=n-a;hud();return n}
+function gainXP(n,ev){S.xp+=n*0.4;if(S.xp>=100){S.xp-=100;S.lv++;toast(`升级！Lv${S.lv}`)}hud();
+  const f=document.createElement('div');f.className='xpfx';f.textContent=`+${n} XP`;const r=$('#app').getBoundingClientRect();
+  f.style.left=((ev&&ev.clientX)?ev.clientX-r.left:220)+'px';f.style.top=((ev&&ev.clientY)?ev.clientY-r.top-20:60)+'px';$('#app').append(f);setTimeout(()=>f.remove(),1400)}
+function openM(html){$('#modal').innerHTML=html;$('#mask').classList.remove('hide')}
+function closeM(){$('#mask').classList.add('hide')}
+$('#mask').onclick=e=>{if(e.target.id==='mask')closeM()};
+const tip=$('#tip');
+function hov(el,t){el.addEventListener('mousemove',v=>{tip.style.display='block';tip.innerHTML=t;tip.style.left=v.clientX+12+'px';tip.style.top=v.clientY+12+'px'});el.addEventListener('mouseleave',()=>tip.style.display='none')}
+
+/* ---------- HUD ---------- */
+function hud(){
+  const r=S.role;
+  $('#who').innerHTML=r==='stu'?`<div class="ava">林<b class="num">Lv${S.lv}</b></div><div><div style="font-weight:700">林晓 <span class="mut" style="font-weight:400">· 建筑学 2026 级 · 助理建筑师</span></div><div class="xp"><i style="width:${S.xp}%"></i></div></div>`
+   :r==='tea'?`<div class="ava t">陈</div><div><div style="font-weight:700">陈老师 <span class="mut" style="font-weight:400">· 建筑城规学院</span></div><div class="mut">在「筑年」中的角色：主讲</div></div>`
+   :`<div class="ava k">周</div><div><div style="font-weight:700">周敏 <span class="mut" style="font-weight:400">· 重庆某大学 OPC 校园孵化器 · 运营</span></div><div class="mut">城市合伙人：重庆渝新教育（示例）</div></div>`;
+  $('#res').innerHTML=r==='ops'?`<div>入驻 OPC <b class="num">36</b></div><div><span class="gem"></span>本月 Token <b class="num">8.6M</b></div>`
+   :r==='tea'?`<div>学生 <b class="num">28</b></div><div onclick="go('me')" style="cursor:pointer"><span class="gem"></span>点数 <b class="num">${fmt(S.sub+S.bal)}</b></div>`
+   :`<div title="精力">⚡ <b class="num">7/12</b></div><div onclick="go('me')" style="cursor:pointer"><span class="gem"></span>点数 <b class="num">${fmt(S.sub+S.bal)}</b></div><div>🔥 <b class="num">12</b> 天</div>`;
+}
+/* ---------- 导航 ---------- */
+function go(v){S.view=v;$$('.rail a').forEach(a=>a.classList.toggle('on',a.dataset.v===v));$$('.view').forEach(x=>x.classList.toggle('on',x.id==='v-'+v));
+  if(v==='kn')renderKn();if(v==='tp')renderTp();if(v==='opc')renderOpc();if(v==='me')renderMe();}
+$$('.rail a').forEach(a=>a.onclick=()=>go(a.dataset.v));
+$$('#roles button').forEach(b=>b.onclick=()=>{$$('#roles button').forEach(x=>x.classList.remove('on'));b.classList.add('on');S.role=b.dataset.r;S.tp=null;S.kSel=null;hud();initChat();go(S.role==='ops'?'opc':'ai')});
+function startApp(){$('#onb').classList.add('hide');setTimeout(()=>brief(),300)}
+
+/* ================= 助理 ================= */
+function addU(t){const d=document.createElement('div');d.className='um';d.textContent=t;$('#stream').append(d);scr();}
+function addA(html){const d=document.createElement('div');d.className='am';d.innerHTML=`<div class="sa">S</div><div class="c">${html}</div>`;$('#stream').append(d);scr();return d}
+function scr(){const s=$('#stream');s.scrollTop=s.scrollHeight}
+function mem(arr){return `<div class="mem"><span class="h">◉ 想起了</span>${arr.map(x=>`<span onclick="go('kn')">${x}</span>`).join('')}</div>`}
+function think(cb,ms=600){const d=addA('<div class="run"><span class="spin"></span>正在想…</div>');setTimeout(()=>{d.remove();cb()},ms)}
+function setSugg(list){$('#sugg').innerHTML=list.map(([t,f])=>`<button data-f="${f}">${t}</button>`).join('');$$('#sugg button').forEach(b=>b.onclick=()=>{addU(b.textContent);A[b.dataset.f]()})}
+function send(){const v=$('#ask').value.trim();if(!v)return;$('#ask').value='';addU(v);
+  const m=[['CNCUBE','cncube'],['导入','cncube'],['弱','weak'],['薄弱','weak'],['接','gig'],['活','gig'],['作品集','portfolio'],['注册','opcreg'],['批','grade'],['开','open5']].find(([k])=>v.includes(k));
+  if(m&&A[m[1]])return A[m[1]]();
+  think(()=>{spend(2);addA(`<p>（原型演示）正式版会结合你的课题资料、知识图谱和记忆来回答，背后接豆包等大模型。</p><div class="mut">−2 点</div>`)})}
+$('#ask').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});
+
+function stageDefault(){
+  if(S.role==='tea')return stageClass();
+  $('#stage').innerHTML=`<div class="lab onimg">舞台 · 今天</div><div class="hero" style="background-image:url(img/i-518.jpg)"></div>
+  <div class="ft"><h3>王姐家的两居室</h3><div class="mut">筑年 · 第 4 课 · 家具布置委托 · 剩 31 小时</div>
+  <div class="row" style="gap:10px;margin-top:12px">
+    <div class="panel" style="flex:1;padding:12px"><div class="mut">本周主线</div><div class="num" style="font-size:22px;font-weight:800">+3 <span style="font-size:13px;color:var(--t3)">知识点</span></div></div>
+    <div class="panel" style="flex:1;padding:12px"><div class="mut">工作室</div><div class="num" style="font-size:22px;font-weight:800">2 <span style="font-size:13px;color:var(--t3)">单进行中</span></div></div>
+    <div class="panel" style="flex:1;padding:12px"><div class="mut">点数</div><div class="num" style="font-size:22px;font-weight:800">${fmt(S.sub+S.bal)}</div></div>
+  </div>
+  <div class="acts"><button class="b p" onclick="go('tp');openTp('zn')">打开课题</button><button class="b" onclick="go('kn')">看我的知识图</button></div></div>`}
+
+function brief(){
+  if(S.role==='tea')return briefT();
+  addA(`<div class="brief"><div style="font-weight:700;margin-bottom:2px">早，林晓。今天 3 件事，我按轻重排好了：</div>
+    <div class="r"><span class="tg m">课题</span>王姐家的家具委托，剩 <b class="num">31</b> 小时<span class="x">+120 XP</span></div>
+    <div class="r"><span class="tg s">悬赏</span>新开放：教学楼 B 实景 + 1:1 真值模型，可组队<span class="x">训练课题</span></div>
+    <div class="r"><span class="tg o">OPC</span>工作室注册还差 1 份材料，我可以帮你生成<span class="x">3 / 6</span></div>
+    <div class="acts"><button class="b p" onclick="addU('先做委托。底图导进 CNCUBE，按我昨晚画的布置出白模，再来三个视角。');A.cncube()">先做委托</button><button class="b" onclick="addU('把注册材料生成了');A.opcreg()">把材料生成了</button><button class="b" onclick="toast('好的，下午 3 点再提醒你')">稍后提醒</button></div></div>`);
+  setSugg([['把底图导进 CNCUBE 出白模','cncube'],['我最近哪里比较弱？','weak'],['帮我找个能接的活','gig'],['生成我的作品集网页','portfolio']]);
+}
+const A={
+ cncube(){think(()=>{
+   const d=addA(mem(['王姐：床别对门','窗边放梳妆台','你昨晚 23:10 的草图','第 3 课被扣分：比例'])+`<div class="run" id="cr"><span class="spin"></span>正在调度你电脑上的 CNCUBE…</div>`);
+   stageRun(()=>{spend(18);d.querySelector('#cr').outerHTML=`<div class="run"><span class="ok">✓</span>你电脑上的 CNCUBE · 6 步完成 · 1 分 52 秒<span class="cost num">−18 ◆</span></div>`;
+     d.querySelector('.c').insertAdjacentHTML('beforeend',`<p>白模和三个视角在右边。整体没问题，只有一处：次卧床边通道只有 <b class="num">0.55</b> 米，规范要 0.6 米以上——你上次也是在尺度上被扣的分。</p><div class="acts"><button class="b p" onclick="addU('给我两个改法');A.fix()">给我两个改法</button><button class="b" onclick="addU('直接提交给陈老师');A.submit(event)">直接提交给陈老师</button></div>`);scr();
+     setSugg([['给我两个改法','fix'],['问问王姐能不能换床','askwang'],['提交给陈老师','submit']]);});
+ })},
+ fix(){think(()=>{spend(4);addA(`<p>两个改法：</p><p>① 床改成 1.0 米宽，通道变 0.75 米，书桌不动；<br>② 床转 90° 靠窗，通道 0.9 米，但书桌要挪到门边，采光差一点。</p><p>王姐说过“小房间以后给孩子”，我更推荐 ①。要我直接在 CNCUBE 里改成 ① 吗？</p><div class="acts"><button class="b p" onclick="addU('按①改');A.fixdo()">按 ① 改</button><button class="b" onclick="addU('按②改');A.fixdo()">按 ② 改</button></div><div class="mut">−4 点</div>`);
+   setSugg([['按①改','fixdo'],['提交给陈老师','submit']])})},
+ fixdo(){think(()=>{spend(6);addA(`<div class="run"><span class="ok">✓</span>CNCUBE · 已修改次卧，重新渲染 1 张<span class="cost num">−6 ◆</span></div><p>改好了，通道 0.75 米。这一处我也记进了你的知识图：<b>人体尺度</b> 掌握度会在老师评分后更新。</p><div class="acts"><button class="b p" onclick="addU('提交给陈老师');A.submit(event)">提交给陈老师</button></div>`);
+   $('#stage .warn')&&($('#stage .warn').outerHTML='<div class="warn" style="color:#6fd3ab;border-color:rgba(25,158,112,.4);background:rgba(25,158,112,.1)">✓ 次卧通道 0.75 m，已符合</div>');
+   setSugg([['提交给陈老师','submit'],['生成我的作品集网页','portfolio']])})},
+ askwang(){think(()=>{addA(`<p>我替你在模拟 QQ 里问了王姐（消耗 1 轮，还剩 ${--S.qqLeft} 轮）：</p><div class="panel" style="padding:10px 12px;font-family:SimSun,serif;color:#d9e6f7;background:#0f1a2a">王姐：床小点没关系，孩子还小。你看着办，周四前给我。</div>`);spend(1)})},
+ submit(ev){if(S.submitted){toast('已经提交过了');return}think(()=>{S.submitted=true;spend(4);{const a=KN.find(x=>x.id==='a1');a.prev=a.m;a.prevd=a.d;a.m=66;a.d=.8;a.pulse=true}gainXP(120,ev);addA(`<div class="run"><span class="ok">✓</span>已提交第 4 课 · 附 AI 使用说明：用 AI 查尺寸规范、调度 CNCUBE 建模，布置方案自己做<span class="cost num">−4 ◆</span></div><p>AI 初评 <b class="num">86</b>（仅供参考），陈老师会在飞书收到通知。<b style="color:var(--gold)">+120 XP</b></p><p>知识图里「人体尺度」的泡泡长大了一点：61 → 66。</p><div class="acts"><button class="b" onclick="go('kn')">看知识图变化</button><button class="b" onclick="addU('收进作品集');toast('已收进作品集')">收进作品集</button></div>`);
+   setSugg([['我最近哪里比较弱？','weak'],['帮我找个能接的活','gig'],['生成我的作品集网页','portfolio']])})},
+ weak(){think(()=>{spend(5);addA(mem(['筑年 · 3 次阶段评价','陈老师批语','你和我聊过 9 次 CAD 图层'])+`<p>按你的知识图看：</p><p>· <b>强</b>：摄影构图、2000 年代住宅认知（主线掌握 85% 以上）；<br>· <b>弱</b>：空间比例（52%）、人体尺度（61%）；<br>· <b>支线收获</b>：客户沟通、AI 出图提示词，这两块是你和我聊出来的，不算主线分，但已经长在图上了。</p><p>建议：第 4 课改好通道宽度，再做 5 道尺度小题，比例这块周末我陪你练。</p><div class="acts"><button class="b p" onclick="addU('出5道尺度小题');A.quiz()">出 5 道尺度小题</button><button class="b" onclick="go('kn')">打开知识图</button></div><div class="mut">−5 点</div>`);
+   stageGraph();setSugg([['出5道尺度小题','quiz'],['帮我找个能接的活','gig']])})},
+ quiz(){think(()=>{spend(3);addA(`<p>第 1 题：单人床一侧的通行宽度一般不小于？</p><div class="acts"><button class="b" onclick="toast('再想想 🙂')">0.45 米</button><button class="b" onclick="this.classList.add('p');gainXP(10,event);toast('答对了！人体尺度 +2%')">0.6 米</button><button class="b" onclick="toast('再想想 🙂')">1.0 米</button></div><div class="mut">−3 点 · 共 5 题</div>`)})},
+ gig(){think(()=>{spend(3);addA(mem(['CNCUBE Lv4','周末有空','你想攒钱买显卡'])+`<p>按你的技能和时间，挑了 2 个：</p><div class="brief"><div class="r"><span class="tg s">训练课题</span>教学楼 B · 实景照片 + 1:1 真值模型 · 可组队<span class="x">按件结算</span></div><div class="r"><span class="tg m">真实项目</span>某产业园 AI 数字沙盘 · 招建模 1 人<span class="x">导师审核</span></div></div><div class="acts"><button class="b p" onclick="toast('已领取：教学楼 B，截止 11-30');gainXP(20,event)">领训练课题</button><button class="b" onclick="go('opc')">去 OPC 看全部</button></div><div class="mut">−3 点 · 收入以书面分配规则为准，不承诺固定金额</div>`);
+   stageBounty()})},
+ portfolio(){think(()=>{spend(8);addA(`<div class="run"><span class="ok">✓</span>已从 23 件作品里挑出 8 件，生成作品集网页<span class="cost num">−8 ◆</span></div><p>地址：<b>sheencity.net/u/linxiao</b>（域名待定）。课题成果都可以公开，真实项目签约时已约定可以宣传，放心用来求职。</p><div class="acts"><button class="b p" onclick="go('tp');S.tpTab='pf';renderTp()">打开作品集</button><button class="b" onclick="toast('链接已复制')">复制链接</button></div>`);stagePortfolio()})},
+ opcreg(){think(()=>{spend(5);addA(`<div class="run"><span class="ok">✓</span>已生成：公司章程、经营范围说明、住所使用证明（孵化器提供）<span class="cost num">−5 ◆</span></div><p>注册进度 4/6。下一步由当地代办伙伴提交，预计 3 个工作日。要我现在发给代办吗？</p><div class="acts"><button class="b p" onclick="toast('已发送给代办伙伴，进度会在 OPC 页面更新')">发给代办</button><button class="b" onclick="go('opc')">看工作室</button></div>`)})},
+ // 老师
+ grade(){think(()=>{spend(6);addA(`<div class="run"><span class="ok">✓</span>按《第 4 课评分标准》初评 24 份 · 2 人超时已关闭提交</div><p>平均 <b class="num">81</b> 分，分布在右边。有 <b>3 份</b>需要您亲自看：</p><div class="brief"><div class="r"><span class="tg m">存疑</span>刘一诺：效果图和平面不一致，说明里写了“用 AI 出图”</div><div class="r"><span class="tg s">偏低</span>张驰：餐桌挡住厨房动线，但沟通记录很完整</div><div class="r"><span class="tg o">亮点</span>林晓：自己发现并改了次卧通道宽度</div></div><div class="acts"><button class="b p" onclick="toast('已按初评预填 24 人的分数和剧情报酬，可逐个修改')">按初评预填</button><button class="b" onclick="go('tp');openTp('zn')">逐份看</button></div>`);stageGrades();setSugg([['周四开第5课测验','open5'],['看全班知识点掌握','classkn']])})},
+ open5(){think(()=>{spend(4);addA(mem(['学生出题 140 道','本班易错：比例与尺度','您偏好闭卷'])+`<p>从学生出的题里筛了 30 道（易 10 · 中 14 · 难 6），尺度相关多放了 4 道。周四 8:00 自动开启第 5 课并通知全班，可以吗？</p><div class="acts"><button class="b p" onclick="toast('已定时：周四 8:00 开启第 5 课')">确认，周四开</button><button class="b" onclick="toast('试卷草稿已在飞书云文档打开')">我改几道</button></div>`)})},
+ classkn(){go('kn')},
+};
+function stageRun(done){
+  const steps=['连接桌面助手（林晓的电脑 · RTX 4060）','启动 CNCUBE，新建项目','导入 户型底图.dwg，识别墙体与门窗','按你的草图布置家具，生成白模','渲染 3 个视角','回传成果'];
+  $('#stage').innerHTML=`<div class="stgpad"><div class="lab">舞台 · 执行中</div><div class="h2">王姐家 · 白模与三视角</div><div class="mut">桌面助手 → CNCUBE</div><div class="steps" id="stp" style="margin-top:14px"></div></div>`;
+  let k=0;const t=()=>{$('#stp').innerHTML=steps.map((s,i)=>`<div class="st ${i<k?'d':i===k?'r':''}"><i></i>${s}</div>`).join('');if(k<steps.length){k++;setTimeout(t,500)}else{stageArtifact();done()}};t();
+}
+function stageArtifact(){
+  $('#stage').innerHTML=`<div class="lab onimg">舞台 · 刚刚完成</div><div class="hero" id="hero" style="background-image:url(img/i-527.jpg)"></div>
+  <div class="ft"><h3>王姐家 · 白模与三视角</h3><div class="mut">CNCUBE 生成 · 桌面助手 · 林晓的电脑 · 刚刚</div>
+  <div class="thumbs">${['i-527','i-525','i-526','i-487'].map((x,i)=>`<div class="${i?'':'on'}" style="background-image:url(img/${x}.jpg)" onclick="$$('.thumbs div').forEach(d=>d.classList.remove('on'));this.classList.add('on');$('#hero').style.backgroundImage='url(img/${x}.jpg)'"></div>`).join('')}</div>
+  <div class="warn">⚠ 次卧通道 0.55 m，低于 0.6 m</div>
+  <div class="acts"><button class="b p" onclick="addU('直接提交给陈老师');A.submit(event)">提交第 4 课</button><button class="b" onclick="toast('已收进作品')">收进作品</button><button class="b" onclick="addU('问问王姐能不能换床');A.askwang()">发给王姐看看</button></div></div>`}
+function stageBounty(){$('#stage').innerHTML=`<div class="lab onimg">舞台 · 推荐给你</div><div class="hero" style="background-image:url(img/c-hx.jpg)"></div><div class="ft"><span class="tg s">训练课题</span><h3 style="margin-top:6px">教学楼 B · 实景照片 + 1:1 真值模型</h3><div class="mut">光辉城市官方发布 · 用于空间大模型训练 · 按《采集标准 v1》验收</div><div class="row" style="gap:8px;margin-top:10px"><span class="chipx">拍摄 120+ 张</span><span class="chipx">CNCUBE 建模</span><span class="chipx">可 3 人组队</span><span class="star">★★☆☆</span></div><div class="acts"><button class="b p" onclick="toast('已领取：教学楼 B');gainXP(20,event)">领取</button><button class="b" onclick="toast('已打开采集标准')">采集标准</button></div></div>`}
+function stagePortfolio(){$('#stage').innerHTML=`<div class="stgpad"><div class="lab">舞台 · 作品集网页预览</div><div class="url">🔗 sheencity.net/u/linxiao <span class="mut" style="margin-left:auto">域名待定</span></div>
+  <div class="pf" style="margin-top:12px"><div class="top" style="height:150px"><div><div style="font-size:22px;font-weight:800">林晓</div><div style="font-size:12px;opacity:.85">建筑学 · 空间智能方向 · 光晓空间设计工作室</div></div></div>
+  <div class="grid" style="grid-template-columns:repeat(2,1fr);padding:12px">${PF.slice(0,4).map(w=>`<div class="w"><div class="im" style="height:90px;background-image:url(img/${w[0]}.jpg)"></div><div class="t">${w[1]}<span>${w[2]}</span></div></div>`).join('')}</div></div></div>`}
+function stageClass(){$('#stage').innerHTML=`<div class="stgpad"><div class="lab">舞台 · 筑年 · 2026 级 1 班</div>
+  <div class="row" style="gap:26px;align-items:flex-end"><div><div class="mut">学生</div><div class="num" style="font-size:40px;font-weight:800;line-height:1">28</div></div><div><div class="mut">第 4 课已交</div><div class="num" style="font-size:26px;font-weight:800">24<span style="font-size:15px;color:var(--t3)">/28</span></div></div><div><div class="mut">本周全班点数</div><div class="num" style="font-size:26px;font-weight:800">6,420</div></div></div>
+  <div class="h2" style="margin-top:20px">主干知识点 · 全班平均掌握度</div><div class="cls" id="clsBars"></div>
+  <div class="h2" style="margin-top:18px">需要关心的同学</div>
+  <div class="brief" style="margin-top:8px"><div class="r"><span class="tg m">沉默</span>赵雨桐：3 天没打开平台，第 4 课超时<span class="x">提醒 · 找她聊</span></div><div class="r"><span class="tg s">卡住</span>周航：问了 9 次 CAD 图层还没进展<span class="x">推教学视频</span></div></div></div>`;clsBars('#clsBars')}
+function stageGrades(){$('#stage').innerHTML=`<div class="stgpad"><div class="lab">舞台 · 第 4 课初评</div>
+  <div class="row" style="gap:26px;align-items:flex-end"><div><div class="mut">平均分</div><div class="num" style="font-size:46px;font-weight:800;line-height:1">81</div></div><div><div class="mut">已交</div><div class="num" style="font-size:26px;font-weight:800">24<span style="font-size:15px;color:var(--t3)">/28</span></div></div><div><div class="mut">需复核</div><div class="num" style="font-size:26px;font-weight:800;color:var(--rl)">3</div></div></div>
+  <div class="h2" style="margin-top:20px">分数分布 <span class="mut" style="font-weight:400">· 人数</span></div><div id="hist"></div></div>`;hist('#hist')}
+function briefT(){
+  addA(`<div class="brief"><div style="font-weight:700;margin-bottom:2px">陈老师好，筑年 2026 级 1 班今天的情况：</div>
+  <div class="r"><span class="tg m">待批</span>第 4 课交了 24 份，我已初评，3 份需要您看<span class="x">截止已过</span></div>
+  <div class="r"><span class="tg s">下一课</span>第 5 课知识测验，学生出题已收齐 140 道<span class="x">待开启</span></div>
+  <div class="r"><span class="tg y">关心</span>2 位同学可能需要帮助<span class="x">见右侧</span></div>
+  <div class="acts"><button class="b p" onclick="addU('第4课交上来的，先帮我过一遍。');A.grade()">先过一遍作业</button><button class="b" onclick="addU('周四开第5课测验，从学生出的题里挑30道。');A.open5()">安排第 5 课</button></div></div>`);
+  setSugg([['帮我批第4课','grade'],['周四开第5课测验','open5'],['看全班知识点掌握','classkn']]);
+}
+function initChat(){$('#stream').innerHTML='<div class="spacer"></div>';$('#ctx').textContent=S.role==='tea'?'当前：筑年 · 2026 级 1 班 · 主讲':'当前：筑年 · 第 4 课';
+  $('#ask').placeholder=S.role==='tea'?'对助理说：开下一课、批作业、发通知、看谁需要帮助…':'和助理说点什么，或者把文件拖进来…';
+  stageDefault(); if(!$('#onb').classList.contains('hide'))return; brief();}
+
+/* ================= 知识图（泡泡：颜色深浅=浓度，大小=掌握度，动态） ================= */
+const CATS={sj:['设计基础',0],rz:['建筑认知',1],js:['软件与技术',2],zy:['职业实践',3]};
+const HUES={dark:['#3987e5','#d95926','#199e70','#c98500'],light:['#2a78d6','#eb6834','#1baf7a','#c98500']};
+const isLight=()=>document.body.classList.contains('light');
+const hue=c=>HUES[isLight()?'light':'dark'][CATS[c][1]];
+// m=掌握度(0-100，null 未学) d=浓度(0-1，学习记录累积) s=本学期开始点亮的时间(0-1) ty: m主线 / sd支线-对话 / st支线-任务
+const KN=[
+ {id:'a1',n:'人体尺度',c:'sj',ty:'m',m:61,d:.72,s:.55,src:'第 4 课阶段评价',tp:'zn'},
+ {id:'a2',n:'家具尺寸',c:'sj',ty:'m',m:78,d:.6,s:.55,src:'第 4 课阶段评价',tp:'zn'},
+ {id:'a3',n:'平面布置',c:'sj',ty:'m',m:72,d:.82,s:.5,src:'第 4 课阶段评价',tp:'zn'},
+ {id:'a4',n:'空间比例',c:'sj',ty:'m',m:52,d:.45,s:.35,src:'第 3 课阶段评价',tp:'zn'},
+ {id:'a5',n:'点线面构成',c:'sj',ty:'m',m:70,d:.55,s:.3,src:'第 3 课阶段评价',tp:'zn'},
+ {id:'b1',n:'摄影构图',c:'rz',ty:'m',m:88,d:.92,s:.1,src:'第 2 课阶段评价',tp:'zn'},
+ {id:'b2',n:'2000 年代住宅',c:'rz',ty:'m',m:86,d:.7,s:.12,src:'第 2 课阶段评价',tp:'zn'},
+ {id:'b3',n:'建筑史 1990s',c:'rz',ty:'m',m:null,d:0,s:1,src:'第 6 课（未开始）',tp:'zn'},
+ {id:'c1',n:'CAD 基础',c:'js',ty:'m',m:74,d:.8,s:.4,src:'第 4 课阶段评价',tp:'zn'},
+ {id:'c2',n:'SketchUp 建模',c:'js',ty:'m',m:69,d:.6,s:.3,src:'第 3 课阶段评价',tp:'zn'},
+ {id:'c3',n:'CNCUBE 建墙',c:'js',ty:'st',m:60,d:.5,s:.6,src:'支线任务 · 沙盘订单',tp:'opc'},
+ {id:'c4',n:'Blender 渲染',c:'js',ty:'st',m:45,d:.3,s:.35,src:'支线任务 · 第 3 课',tp:'zn'},
+ {id:'c5',n:'照片对齐',c:'js',ty:'st',m:40,d:.35,s:.75,src:'支线任务 · 训练课题',tp:'opc'},
+ {id:'c6',n:'校园空间采集',c:'js',ty:'m',m:null,d:0,s:1,src:'下学期课题',tp:'cj'},
+ {id:'c7',n:'点云与测绘',c:'js',ty:'m',m:null,d:0,s:1,src:'下学期课题',tp:'cj'},
+ {id:'d1',n:'客户沟通',c:'zy',ty:'sd',m:55,d:.65,s:.5,src:'和助理对话 · 12 次',tp:'zn'},
+ {id:'d2',n:'AI 出图提示词',c:'zy',ty:'sd',m:66,d:.85,s:.2,src:'和助理对话 · 27 次',tp:'zn'},
+ {id:'d3',n:'报价常识',c:'zy',ty:'sd',m:30,d:.2,s:.85,src:'和助理对话 · 3 次',tp:'opc'},
+ {id:'d4',n:'合同常识',c:'zy',ty:'sd',m:22,d:.15,s:.9,src:'和助理对话 · 2 次',tp:'opc'},
+];
+const KE=[['a1','a2'],['a1','a3'],['a1','a4'],['a4','a5'],['a2','a3'],['b1','b2'],['b2','b3'],['c1','c2'],['c2','c3'],['c2','c4'],['c5','c6'],['c6','c7'],['d1','d3'],['d3','d4'],['d1','a3'],['d2','b1'],['c5','d2'],['a5','c4'],['c1','a3']];
+const CLS={a1:64,a2:76,a3:70,a4:58,a5:73,b1:80,b2:79,c1:71,c2:66,c3:38,c4:41,c5:22,d1:61,d2:70,d3:18,d4:12};
+let G=null;
+function nodeVal(k){const tea=S.role==='tea';return {m:k.m==null?null:(tea?(CLS[k.id]??k.m):k.m),d:tea?Math.min(1,k.d*.9+.1):k.d}}
+function makeGraph(sel,{mini=false}={}){
+  const box=$(sel);box.innerHTML='';const W=box.clientWidth||900,H=box.clientHeight||700,NS='http://www.w3.org/2000/svg';
+  const el=(t,a,x)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(x!=null)e.textContent=x;return e};
+  const svg=el('svg',{width:W,height:H,viewBox:`0 0 ${W} ${H}`,class:'gsvg'});box.append(svg);
+  const sc=mini?.78:1,cx=W/2,cy=H/2+(mini?0:40);
+  const C={sj:[cx-W*.24,cy-H*.17],rz:[cx+W*.22,cy-H*.2],js:[cx-W*.17,cy+H*.23],zy:[cx+W*.24,cy+H*.17]};
+  const gl=el('g',{}),gn=el('g',{});svg.append(gl,gn);
+  let seed=11;const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
+  const hub={id:'hub',x:cx,y:cy,fx:true,r:28*sc};
+  const N=KN.map(k=>{let[x,y]=C[k.c];if(k.m==null){x+=(x-cx)*.55;y+=(y-cy)*.55}const v=nodeVal(k);return{k,x:x+(rnd()-.5)*90,y:y+(rnd()-.5)*90,vx:0,vy:0,dm:k.prev??v.m??0,dd:k.prevd??v.d,ph:rnd()*6.28}});
+  const M={hub};N.forEach(n=>M[n.k.id]=n);
+  const links=[...KE.map(([a,b])=>[M[a],M[b]]),...['a3','b1','c1','d2'].map(id=>[hub,M[id]])];
+  const L=links.map(()=>gl.appendChild(el('line',{class:'glink'})));
+  // hub
+  const hg=el('g',{class:'gnode'});hg.append(el('circle',{r:hub.r+12,class:'ghalo'}),el('circle',{r:hub.r,class:'ghub'}),el('text',{class:'ghubt','text-anchor':'middle',dy:6},S.role==='tea'?'班':'林'));gn.append(hg);
+  N.forEach(n=>{
+    const k=n.k,g=el('g',{class:'gnode'});n.g=g;
+    n.ring=el('circle',{class:'gring',fill:'none'});n.c=el('circle',{class:'gbub'});n.t=el('text',{'text-anchor':'middle',class:'glab'});n.t2=el('text',{'text-anchor':'middle',class:'gval'});
+    g.append(n.ring,n.c,n.t,n.t2);gn.append(g);
+    g.addEventListener('click',()=>{if(n.drag)return;S.kSel=k.id;if(mini)go('kn');else renderKnSide()});
+    g.addEventListener('pointerdown',e=>{n.fx=true;n.drag=false;const r=svg.getBoundingClientRect();const mv=ev=>{n.drag=true;n.x=(ev.clientX-r.left)*W/r.width;n.y=(ev.clientY-r.top)*H/r.height};const up=()=>{n.fx=false;setTimeout(()=>n.drag=false,0);removeEventListener('pointermove',mv);removeEventListener('pointerup',up)};addEventListener('pointermove',mv);addEventListener('pointerup',up)});
+    const v=nodeVal(k);
+    hov(g,`<b>${k.n}</b> · ${CATS[k.c][0]}<br>${v.m==null?'还没学到':(k.ty==='m'?'主线 · 掌握度 '+v.m+'%':'支线 · AI 估计 '+v.m+'%（不计分）')}<br>浓度 ${Math.round(v.d*100)}%（学习记录积累）<br><span style="opacity:.7">${k.src}</span>`);
+  });
+  let replayT=null,t0=0,dead=false;
+  const R=(m)=>m==null?7*sc:(11+m*.33)*sc;
+  function frame(ts){
+    if(dead||!box.isConnected)return;
+    // 目标值
+    let f=1;if(replayT!=null){f=Math.min(1,(ts-replayT)/4200);if(f>=1)replayT=null;const wk=Math.max(1,Math.round(f*10));const lab=$('#wk');lab&&(lab.textContent=`第 ${wk} 周`)}
+    N.forEach(n=>{const v=nodeVal(n.k),s=n.k.s;let tm=v.m,td=v.d;
+      if(replayT!=null||f<1){const p=Math.max(0,Math.min(1,(f-s*.85)/(1-s*.85)));tm=v.m==null?null:v.m*p;td=v.d*p}
+      n.tm=tm;n.dm+=((tm??0)-n.dm)*.07;n.dd+=(td-n.dd)*.07;n.r=(tm==null&&n.dm<1)?R(null):R(n.dm)});
+    // 力
+    const all=[hub,...N];
+    for(let i=0;i<all.length;i++)for(let j=i+1;j<all.length;j++){const a=all[i],b=all[j];let dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1,min=a.r+b.r+(mini?18:30);if(d<min){const p=(min-d)/d*.5;dx*=p;dy*=p;if(!a.fx){a.x-=dx;a.y-=dy}if(!b.fx){b.x+=dx;b.y+=dy}}}
+    links.forEach(([a,b])=>{const dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1,k=(d-(mini?95:135))*.004;if(!a.fx){a.vx+=dx/d*k*d*.02;a.vy+=dy/d*k*d*.02}if(!b.fx){b.vx-=dx/d*k*d*.02;b.vy-=dy/d*k*d*.02}});
+    N.forEach(n=>{if(n.fx){n.vx=n.vy=0;return}let[x,y]=C[n.k.c];if(n.k.m==null){x+=(x-cx)*.55;y+=(y-cy)*.55}n.vx+=(x-n.x)*.004;n.vy+=(y-n.y)*.004;n.vx+=Math.cos(ts/1400+n.ph)*.02;n.vy+=Math.sin(ts/1700+n.ph)*.02;n.vx*=.86;n.vy*=.86;n.x+=n.vx;n.y+=n.vy;
+      n.x=Math.max(n.r+4,Math.min(W-n.r-4,n.x));n.y=Math.max(n.r+(mini?30:150),Math.min(H-n.r-18,n.y))});
+    // 画
+    links.forEach(([a,b],i)=>{L[i].setAttribute('x1',a.x);L[i].setAttribute('y1',a.y);L[i].setAttribute('x2',b.x);L[i].setAttribute('y2',b.y)});
+    hg.setAttribute('transform',`translate(${hub.x},${hub.y})`);
+    N.forEach(n=>{const k=n.k,h=hue(k.c),un=n.tm==null&&n.dm<1,sel=S.kSel===k.id;
+      n.g.setAttribute('transform',`translate(${n.x.toFixed(1)},${n.y.toFixed(1)})`);
+      n.g.style.opacity=(S.kFilter==='all'||(S.kFilter==='side'?k.ty!=='m':k.tp===S.kFilter))?1:.15;
+      n.c.setAttribute('r',n.r);
+      if(un){n.c.setAttribute('fill','none');n.c.setAttribute('stroke','var(--gUn)');n.c.setAttribute('stroke-width',1.5);n.c.setAttribute('fill-opacity',1)}
+      else{n.c.setAttribute('fill',h);n.c.setAttribute('fill-opacity',(.16+n.dd*.84).toFixed(2));n.c.setAttribute('stroke',sel?'var(--t1)':h);n.c.setAttribute('stroke-width',sel?3:1.2)}
+      n.ring.setAttribute('r',n.r+5);n.ring.setAttribute('stroke',k.ty==='m'?'none':h);n.ring.setAttribute('stroke-dasharray','3 3');n.ring.setAttribute('stroke-width',1.4);
+      const fs=mini?11:12.5,showV=!un&&n.r>=14*sc;
+      n.t.textContent=k.n;n.t.setAttribute('y',n.r+15);n.t.setAttribute('class','glab'+(un?' un':''));n.t.style.fontSize=fs+'px';
+      n.t2.textContent=showV?Math.round(n.dm):'';n.t2.setAttribute('y',5);n.t2.setAttribute('class','gval'+(n.dd>.5?' on':''));n.t2.style.fontSize=Math.max(11,Math.min(20,n.r*.55))+'px';
+      if(k.pulse&&!n.pz){n.pz=1;n.g.classList.add('pulse')}
+    });
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  return{replay(){replayT=performance.now()},stop(){dead=true}};
+}
+function renderKn(){
+  const tea=S.role==='tea';
+  $('#knTitle').innerHTML=tea?'知识<small>筑年 · 2026 级 1 班 · 全班知识图</small>':'知识<small>你学会的，会长成一片泡泡 · 存在你的飞书多维表格里</small>';
+  $$('#knTabs button').forEach(b=>{b.classList.toggle('on',b.dataset.f===S.kFilter);b.onclick=()=>{S.kFilter=b.dataset.f;$$('#knTabs button').forEach(x=>x.classList.toggle('on',x===b))}});
+  $('#knLegend').innerHTML=Object.entries(CATS).map(([k,[n]])=>`<span><i style="background:${hue(k)}"></i>${n}</span>`).join('')+`<span class="lg2"><b class="dd"><i style="opacity:.25"></i><i style="opacity:.6"></i><i></i></b>颜色越深，积累越多（浓度）</span><span class="lg2"><b class="sz"><i></i><i></i><i></i></b>越大，掌握越好</span><span class="lg2"><i class="dash"></i>支线</span><span class="lg2"><i class="un"></i>还没学到</span>`;
+  G&&G.stop();G=makeGraph('#graph');
+  renderKnSide();
+}
+function renderKnSide(){
+  const tea=S.role==='tea',k=KN.find(x=>x.id===S.kSel);let h='';
+  if(tea){h=`<div class="panel"><div class="h2">全班知识图</div><div class="mut" style="margin-top:4px">泡泡大小 = 全班平均掌握度；颜色深浅 = 全班学习记录积累。主线来自课程包阶段评价，支线来自支线任务和学生与助理的对话。</div></div>
+    <div class="panel"><div class="h2">主干知识点 · 全班平均</div><div class="cls" id="clsBars2"></div></div>
+    <div class="panel"><div class="h2">支线收获</div><div class="cls" style="margin-top:8px">${[['AI 出图提示词',23],['客户沟通',19],['CNCUBE 建墙',11],['照片对齐',7],['报价常识',5]].map(([a,b])=>`<div class="r"><span>${a}</span><span class="num">${b} 人</span></div>`).join('')}</div></div>
+    <div class="note">学生的知识库存在各自的飞书里；这里是平台按授权汇总的教学统计。</div>`}
+  else{
+    h=`<div class="panel"><div class="kstat"><div><span class="mut">主线掌握</span><b class="num">72%</b></div><div><span class="mut">已点亮</span><b class="num">15<span style="font-size:13px;color:var(--t3)">/19</span></b></div><div><span class="mut">本周新增</span><b class="num">+3</b></div></div>
+      <div class="acts"><button class="b p" onclick="G&&G.replay()">▶ 回放本学期成长</button><span class="mut" id="wk" style="align-self:center">第 10 周</span></div></div>`;
+    if(k){const v=nodeVal(k);h+=`<div class="panel"><div class="row" style="gap:8px;align-items:center"><span style="width:12px;height:12px;border-radius:50%;background:${hue(k.c)}"></span><div class="h2">${k.n}</div><span class="tg ${k.ty==='m'?'m':'s'}">${k.ty==='m'?'主线':'支线'}</span></div>
+      <div class="row" style="gap:24px;margin-top:8px"><div><div class="mut">${k.ty==='m'?'掌握度':'掌握度（AI 估计，不计分）'}</div><div class="num" style="font-size:28px;font-weight:800">${v.m==null?'—':v.m+'%'}</div></div><div><div class="mut">浓度</div><div class="num" style="font-size:28px;font-weight:800">${Math.round(v.d*100)}%</div></div></div>
+      <div class="mut" style="margin-top:6px">来源：${k.src} · ${CATS[k.c][0]}</div>
+      ${k.id==='a1'?'<div style="margin-top:8px;font-size:13px;color:var(--t2)">积累：课时 3 · 作业 2 · 和助理对话 4 · 项目 1</div>':''}
+      <div class="acts"><button class="b p" onclick="go('ai');addU('围绕「${k.n}」出几道题');A.quiz()">让助理出题巩固</button><button class="b" onclick="go('ai');addU('给我讲讲「${k.n}」')">问助理</button></div></div>`}
+    else h+=`<div class="panel"><div class="h2">怎么看这张图</div><div style="font-size:13px;color:var(--t2);margin-top:6px;line-height:1.9">● 颜色代表领域：设计基础、建筑认知、软件与技术、职业实践<br>● <b>颜色越深</b>，这个知识点上积累的学习记录越多（浓度）<br>● <b>泡泡越大</b>，掌握得越好<br>● 虚线圈是支线：做支线任务、和助理聊出来的<br>● 泡泡可以拖动，点一下看详情</div></div>`;
+    h+=`<div class="panel"><div class="h2">最近长出来的</div><div style="margin-top:8px;font-size:13px;display:flex;flex-direction:column;gap:8px">
+      <div><span class="tg m">主线</span> 平面布置 65 → 72　<span class="mut">第 4 课初评</span></div>
+      <div><span class="tg s">支线</span> 合同常识　<span class="mut">昨天和助理聊 OPC 合同</span></div>
+      <div><span class="tg s">支线</span> 照片对齐　<span class="mut">训练课题 · 教学楼 A</span></div></div></div>
+    <div class="url" style="justify-content:space-between">▦ 飞书多维表格 · 林晓的知识库 <button class="b sm" onclick="toast('已在飞书打开「林晓的知识库」多维表格')">打开</button></div>`}
+  $('#knSide').innerHTML=h;if(tea)clsBars('#clsBars2');
+}
+function stageGraph(){$('#stage').innerHTML=`<div class="lab">舞台 · 你的知识图（节选）</div><div id="miniG" style="flex:1;min-height:0"></div><div style="padding:0 20px 20px"><div class="acts"><button class="b p" onclick="go('kn')">打开完整知识图</button></div></div>`;makeGraph('#miniG',{mini:true})}
+function mcol(v){const c=isLight()?['#fde2df','#f7a199','#E8312F','#a3201e']:['#3a1d1d','#8a2422','#E8312F','#ff8a7a'];const t=Math.max(0,Math.min(.999,v/100))*3,i=Math.floor(t),f=t-i;const h=x=>[1,3,5].map(j=>parseInt(x.slice(j,j+2),16));const a=h(c[i]),b=h(c[i+1]);return `rgb(${a.map((x,j)=>Math.round(x+(b[j]-x)*f))})`}
+
+function clsBars(sel){const d=[['人体尺度',64],['家具尺寸',76],['平面布置',70],['空间比例',58],['点线面构成',73],['摄影构图',80],['CAD 基础',71]];
+  $(sel).innerHTML=d.map(([k,v])=>`<div class="r"><span>${k}</span><div class="bar"><i style="width:${v}%;background:${mcol(v)}"></i></div><span class="num" style="width:34px;text-align:right">${v}</span></div>`).join('')}
+function hist(sel){const d=[['<60',1],['60–69',2],['70–79',7],['80–89',11],['90+',3]];
+  $(sel).innerHTML=`<div style="display:flex;align-items:flex-end;gap:14px;height:160px;margin-top:10px;border-bottom:1px solid var(--ln2)">${d.map(([k,v])=>`<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%" title="${k} 分：${v} 人"><span class="num" style="font-size:12px;color:var(--t2)">${v}</span><div style="width:60%;height:${v/12*130}px;background:var(--red);opacity:${k==='80–89'?1:.6};border-radius:4px 4px 0 0"></div></div>`).join('')}</div><div style="display:flex;gap:14px">${d.map(([k])=>`<div style="flex:1;text-align:center;font-size:11px;color:var(--t3);padding-top:4px">${k}</div>`).join('')}</div>`}
+
+/* ================= 课题 ================= */
+const PF=[['c-sg','弄堂 2000 · 摄影组图','筑年 第 2 课 · 88 分'],['i-527','王姐家 · 白模与三视角','筑年 第 4 课'],['c-gs','产业园 AI 数字沙盘','OPC · 负责建模 · 已交付'],['c-hx','教学楼 A · 真值模型','训练课题 · 验收通过'],['i-350','《设计院 2000》AI 漫剧 第 1 集','衍生 · 用课题剧情改编'],['i-480','“筑年”城市明信片','衍生文创 · 4 张一套'],['c-zz','点线面构成','筑年 第 3 课'],['c-wh','2000 年代住宅调研','寝室小组汇报']];
+function renderTp(){
+  const tea=S.role==='tea';
+  if(S.tp){return tpDetail()}
+  const tab=S.tpTab||'list';
+  let h=`<div style="display:flex;align-items:flex-end;gap:12px"><div class="h1">课题<small>${tea?'您参与的课题':'学院为你开通的课题，和你的作品集'}</small></div><div class="tabs" style="margin-left:auto;margin-top:0"><button class="${tab==='list'?'on':''}" onclick="S.tpTab='list';renderTp()">课题</button>${tea?'':`<button class="${tab==='pf'?'on':''}" onclick="S.tpTab='pf';renderTp()">作品集</button>`}</div></div>`;
+  if(tab==='pf'&&!tea){
+    h+=`<div class="row" style="align-items:center;margin-top:14px"><div class="url" style="flex:1">🔗 sheencity.net/u/linxiao <span class="mut">（域名待定）</span></div><button class="b" onclick="toast('链接已复制')">复制链接</button><button class="b p" onclick="go('ai');addU('帮我更新作品集');A.portfolio()">让助理更新</button></div>
+    <div class="pf"><div class="top"><div><div style="font-size:30px;font-weight:800">林晓</div><div style="opacity:.85">建筑学 2026 级 · 空间智能方向 · 光晓空间设计工作室</div></div></div>
+    <div style="padding:16px 26px 0;display:flex;gap:8px;font-size:12px"><span style="background:#1b1b1b;color:#fff;border-radius:12px;padding:2px 10px">全部 8</span><span style="border:1px solid #ccc;border-radius:12px;padding:2px 10px">课题成果</span><span style="border:1px solid #ccc;border-radius:12px;padding:2px 10px">真实项目</span><span style="border:1px solid #ccc;border-radius:12px;padding:2px 10px">文创 · AI 漫剧</span></div>
+    <div class="grid">${PF.map(w=>`<div class="w"><div class="im" style="background-image:url(img/${w[0]}.jpg)"></div><div class="t">${w[1]}<span>${w[2]}</span></div></div>`).join('')}</div></div>
+    <div class="mut" style="margin-top:10px">课题内容和成果都可以公开；真实项目在签约时已约定可公开宣传。展示哪些作品由你自己选。</div>`;
+  }else{
+    h+=`<div class="h2" style="margin-top:18px">进行中 <span class="mut" style="font-weight:400">· 2 个同时推进</span></div>
+    <div style="display:flex;flex-direction:column;gap:14px;margin-top:10px">
+      <div class="tcard" onclick="openTp('zn')"><div class="im" style="background-image:url(img/c-hx.jpg)"></div><div class="bd">
+        <div class="row" style="gap:8px;align-items:center"><span class="tg m">主线</span><span class="mut">建筑设计基础 · 2 学分 · 陈老师${tea?' · 您是主讲':''}</span></div>
+        <div style="font-size:22px;font-weight:800;margin-top:4px">筑年 · 2000 年 · 上海 · 助理建筑师</div>
+        <div class="path">${path([['穿越开场','d'],['摄影比赛','d'],['空间构成','d'],['王姐的委托','c'],['知识测验',''],['同学聚会','']])}</div></div></div>
+      <div class="tcard" onclick="toast('「校园空间采集」本周刚开始，第 1 节点：采集计划')"><div class="im" style="background-image:url(img/i-526.jpg)"></div><div class="bd">
+        <div class="row" style="gap:8px;align-items:center"><span class="tg m">主线</span><span class="mut">校园空间采集与数字孪生 · 3 学分 · 李老师</span></div>
+        <div style="font-size:22px;font-weight:800;margin-top:4px">把我们的校园搬进数字世界</div>
+        <div class="path">${path([['采集计划','c'],['外业拍摄',''],['点云处理',''],['孪生构建',''],['成果路演','']])}</div></div></div>
+    </div>
+    <div class="h2" style="margin-top:22px">即将开始 · 已结束 · 以后</div>
+    <div class="small-grid">
+      <div class="mini"><span class="tg y">下学期</span><div style="font-weight:700;margin-top:6px">空间智能场景设计与应用</div><div class="mut">学院已采购 · 2027 春</div></div>
+      <div class="mini"><span class="tg g">已结束</span><div style="font-weight:700;margin-top:6px">面向人机协同的创新思维</div><div class="mut">1 学分 · 成绩 A · 作品 3 件</div></div>
+      <div class="mini dis"><span class="tg g">即将开放</span><div style="font-weight:700;margin-top:6px">线上课题商店</div><div class="mut">以后个人也可以直接选学</div></div>
+    </div>`;
+  }
+  $('#tpPg').innerHTML=h;
+}
+function path(a){return a.map(([n,c],i)=>`${i?`<div class="lk ${c==='d'||c==='c'?'d':''}"></div>`:''}<div class="nd ${c}"><div class="o">${c==='d'?'✓':i+1}</div>${n}</div>`).join('')}
+function openTp(id){S.tp=id;go('tp')}
+function tpDetail(){
+  const tea=S.role==='tea';
+  let h=`<button class="b sm" onclick="S.tp=null;renderTp()">← 课题</button>
+  <div class="panel" style="margin-top:12px;padding:0;overflow:hidden;background:url(img/c-hx.jpg) center/cover"><div class="dk" style="padding:22px 26px;background:linear-gradient(90deg,rgba(11,11,14,.94) 35%,rgba(11,11,14,.35))">
+    <div style="font-size:11px;letter-spacing:4px;color:var(--rl)">主线 · 筑年 · 第一章</div><div style="font-size:26px;font-weight:800">2000 年 · 上海 · 助理建筑师</div>
+    <div class="path" style="width:640px">${path([['穿越开场','d'],['摄影比赛','d'],['空间构成','d'],['王姐的委托','c'],['知识测验',''],['同学聚会','']])}</div>
+    ${tea?`<div class="acts"><button class="b p" onclick="openM(nextNodeM())">开启第 5 课</button><button class="b" onclick="toast('已向全班发送提醒')">提醒未交的同学</button><span class="mut" style="align-self:center">您在本课题的角色：主讲 · 推进节点、批改、评分</span></div>`:''}
+  </div></div>`;
+  if(tea){
+    h+=`<div class="panel" style="margin-top:14px"><div class="row" style="align-items:center"><div class="h2">第 4 课 · 批改</div><div class="acts" style="margin:0 0 0 auto"><button class="b" onclick="fillAI()">按 AI 初评预填</button><button class="b p" onclick="toast('已发布成绩和剧情报酬，学生在飞书收到通知')">发布成绩</button></div></div>
+    <table id="hw" style="margin-top:8px"><tr><th>学生</th><th>AI 使用说明</th><th>AI 初评</th><th>AI 评语</th><th>评分</th><th>剧情报酬</th></tr>
+    ${[['林晓','查规范 + CNCUBE 建模',86,'自己发现并改了次卧通道'],['王子涵','未使用',79,'次卧通道不足 0.6 米'],['刘一诺','AI 出效果图（已说明）',83,'效果图与平面不一致 1 处'],['张驰','查规范',74,'餐桌与厨房动线冲突']].map(r=>`<tr><td>${r[0]}</td><td class="mut">${r[1]}</td><td class="num">${r[2]}</td><td class="mut">${r[3]}</td><td><input class="sc num" style="width:56px;background:var(--p2);border:1px solid var(--ln2);border-radius:6px;padding:3px 6px"></td><td><input class="pay num" style="width:72px;background:var(--p2);border:1px solid var(--ln2);border-radius:6px;padding:3px 6px"></td></tr>`).join('')}
+    <tr><td>赵雨桐</td><td class="mut">—</td><td>—</td><td class="mut">超时未交，已关闭提交</td><td><span class="tg m">信任度 −5</span></td><td>—</td></tr></table></div>`;
+  }else{
+    h+=`<div class="row" style="margin-top:14px">
+      <div class="panel" style="flex:1.3"><div class="row" style="align-items:center"><div class="h2">第 4 课 · 王姐的委托</div><span class="tg y" style="margin-left:auto">剩 31 小时</span></div>
+        <div style="color:var(--t2);font-size:13px;margin-top:8px">在空户型 CAD 底图上完成全屋家具布置，48 小时内提交 .dwg。报酬由陈老师按质量结算（剧情存款）；超时关闭提交并降低信任度。精力消耗 2。</div>
+        <div class="acts"><span class="chipx">户型底图.dwg</span><span class="chipx">家具素材包</span><span class="chipx">任务书</span></div>
+        <div class="drop ${S.uploaded?'ok':''}" style="margin-top:14px" onclick="S.uploaded=true;this.classList.add('ok');this.textContent='✓ 户型-家具布置-林晓.dwg（2.4 MB）'">${S.uploaded?'✓ 户型-家具布置-林晓.dwg（2.4 MB）':'点击上传 .dwg，或让助理从 CNCUBE 直接提交'}</div>
+        <div class="acts"><button class="b p" onclick="if(!S.uploaded){toast('先上传文件，或在助理里一句话提交');return}A.submit(event);go('ai')">提交给陈老师</button><button class="b" onclick="go('ai');addU('底图导进 CNCUBE，按我昨晚画的布置出白模');A.cncube()">让助理做白模</button></div></div>
+      <div style="flex:1"><div class="qq"><div class="qh"><span>🐧 王姐</span><span>剩余对话 <b id="qqL">${S.qqLeft}</b>/8 轮</span></div>
+        <div class="qb" id="qqb"><p><b>王姐 14:02</b><br>小林啊，图纸发你了，两居室，我和我爱人住，小房间以后给孩子。我时间紧，你言简意赅点哈。</p><p class="me"><b>林晓 14:05</b><br>王姐好，主卧床想靠哪面墙？</p><p><b>王姐 14:06</b><br>别对着门就行，窗边要放个梳妆台。</p></div>
+        <div class="qi"><input id="qqIn" placeholder="给王姐发消息…" onkeydown="if(event.key==='Enter')qq()"><button class="b sm" onclick="qq()">发送</button></div></div>
+        <div class="mut" style="margin-top:8px">王姐由 AI 扮演，轮次有限，用完就“下线”。</div></div>
+    </div>`;
+  }
+  $('#tpPg').innerHTML=h;
+}
+function qq(){const v=$('#qqIn').value.trim();if(!v)return;if(S.qqLeft<=0){toast('王姐已经下线了');return}$('#qqIn').value='';S.qqLeft--;$('#qqL').textContent=S.qqLeft;spend(1);
+  const b=$('#qqb');b.insertAdjacentHTML('beforeend',`<p class="me"><b>林晓 ${new Date().toTimeString().slice(0,5)}</b><br>${v.replace(/</g,'&lt;')}</p>`);
+  setTimeout(()=>{b.insertAdjacentHTML('beforeend',`<p><b>王姐 ${new Date().toTimeString().slice(0,5)}</b><br>${S.qqLeft<=1?'能说的我都说了，剩下的你自己把握，周四前给我。':['行，你看着办，别太挤。','预算有限，家具尽量用现成的。'][S.qqLeft%2]}</p>`);b.scrollTop=1e6},600);b.scrollTop=1e6}
+function fillAI(){const sc=$$('#hw .sc'),pay=$$('#hw .pay'),v=[86,79,83,74];v.forEach((x,i)=>{sc[i].value=x;pay[i].value='¥'+(x>=85?800:x>=78?600:400)});toast('已按 AI 初评预填，可逐个修改')}
+function nextNodeM(){return `<div class="h2">开启第 5 课 · 知识测验？</div><div class="sub" style="margin:10px 0 16px">全班 28 人同时进入新节点，在飞书收到通知。第 4 课还有 4 份未评分，可以稍后再评。</div><div class="acts" style="justify-content:flex-end"><button class="b" onclick="closeM()">再等等</button><button class="b p" onclick="closeM();toast('已开启第 5 课，班级群已通知')">确认开启</button></div>`}
+
+/* ================= OPC ================= */
+function renderOpc(){
+  if(S.role==='ops')return opsView();
+  const t=S.opcTab;
+  let h=`<div style="display:flex;align-items:flex-end;gap:12px"><div class="h1">OPC<small>产业 OPC · 城市更新与空间智能 · 真实服务，真实交易</small></div>
+   <div class="tabs" style="margin-left:auto;margin-top:0">${[['board','悬赏'],['studio','我的工作室'],['svc','服务']].map(([k,n])=>`<button class="${t===k?'on':''}" onclick="S.opcTab='${k}';renderOpc()">${n}</button>`).join('')}</div></div>`;
+  if(t==='board'){
+    h+=`<div class="note" style="margin-top:14px">不创业也可以来：勤工俭学、兼职，都是面向就业的实战。收入以书面分配规则为准，不承诺固定金额。</div>
+    <div class="qgrid">${[
+      ['c-gs','m','真实项目','某产业园 · AI 数字沙盘',['建模','交互'],'★★★☆','组队 3 人','交给助理拆解'],
+      ['c-hx','s','训练课题','教学楼 B · 实景 + 1:1 真值模型',['拍摄','CNCUBE'],'★★☆☆','按件结算','领取'],
+      ['i-357','y','地方场景','某街道 · 社区更新现状采集',['采集','标注'],'★★☆☆','区里发布','报名'],
+      ['c-wh','o','老师课题','社区更新调研 · 照片整理',['标注','访谈'],'★☆☆☆','陈老师','报名'],
+      ['i-525','m','真实项目','某景区 · 导览沙盘交互点位',['交互'],'★★★☆','导师审核','报名'],
+      ['c-sg','s','训练课题','图书馆 · 室内实景 200 张',['拍摄'],'★☆☆☆','按件结算','领取'],
+      ['i-480','m','真实项目','某展厅 · 项目介绍短片',['AI 视频','剪辑'],'★★☆☆','组队 2 人','报名'],
+      ['i-526','y','地方场景','某园区 · 招商数字沙盘更新',['建模'],'★★★★','区里发布','报名']
+    ].map(q=>`<div class="q"><div class="im" style="background-image:url(img/${q[0]}.jpg)"><span class="tg ${q[1]}">${q[2]}</span></div><div class="bd"><h4>${q[3]}</h4><div class="rw">${q[4].map(x=>`<span class="chipx">${x}</span>`).join('')}<span class="star">${q[5]}</span><span class="reward">${q[6]}</span></div><div class="acts" style="margin-top:auto;padding-top:10px"><button class="b p sm" onclick="${q[7]==='交给助理拆解'?`go('ai');addU('帮我拆解：${q[3]}');A.gig()`:`toast('已${q[7]}：${q[3]}');gainXP(20,event)`}">${q[7]}</button><button class="b sm" onclick="toast('详情（演示）')">详情</button></div></div></div>`).join('')}</div>`;
+  }else if(t==='studio'){
+    h+=`<div class="row" style="margin-top:14px">
+      <div class="studio" style="flex:1.2"><div class="row" style="align-items:center;gap:10px"><div style="font-size:22px;font-weight:800">光晓空间设计</div><span class="tg o">注册中 3/6</span></div>
+        <div class="mut">一人有限公司 · 所在孵化器：重庆某大学 OPC 校园孵化器</div>
+        <div class="row" style="gap:30px;margin-top:16px">${[['本学期到账（示例）','¥4,860'],['待结算','¥2,200'],['进行中','2 单'],['代账','本月已报税']].map(([k,v])=>`<div><div class="mut">${k}</div><div class="num" style="font-size:24px;font-weight:800">${v}</div></div>`).join('')}</div>
+        <div class="h2" style="margin-top:18px">注册进度</div>
+        <div class="path" style="width:620px">${path([['主体类型','d'],['名称自查','d'],['经营场所','d'],['材料生成','c'],['代办提交',''],['领照开户','']])}</div>
+        <div class="acts"><button class="b p" onclick="go('ai');addU('把注册材料生成了');A.opcreg()">让助理把注册办完</button><button class="b" onclick="toast('已打开分账规则')">分账规则</button></div></div>
+      <div class="panel" style="flex:1"><div class="h2">一笔沙盘订单怎么分</div><div class="mut">按岗位分配，比例按书面分配规则约定（示意）· 按月结算、每月通报</div>
+        <div style="display:flex;gap:2px;margin-top:16px;height:34px">${[['技术','#3987e5'],['销售','#d95926'],['运营','#199e70'],['平台','#c98500']].map(([k,c])=>`<div style="width:25%;background:${c};border-radius:4px" title="${k}"></div>`).join('')}</div>
+        <div style="display:flex;gap:2px;margin-top:6px;font-size:12px;color:var(--t2)">${['技术','销售','运营','平台'].map(k=>`<div style="width:25%;text-align:center">${k}</div>`).join('')}</div>
+        <div class="h2" style="margin-top:20px">我的点数从哪来</div>
+        <div style="font-size:13px;color:var(--t2);margin-top:6px;line-height:1.9">学校补贴 · 孵化器集中采购后分配 · 自己充值<br><span class="mut">工作室的 Token 用量逐笔记账，可用于申报当地 Token 补贴</span></div></div>
+    </div>`;
+  }else{
+    h+=`<div class="qgrid" style="grid-template-columns:repeat(3,1fr);margin-top:16px">${[['注册代办','当地伙伴按政务流程办理登记'],['代理记账','月度记账报税，收入自动同步'],['法务支持','合同模板、项目合同审核']].map(([k,v])=>`<div class="panel"><div class="h2">${k}</div><div class="sub" style="margin-top:4px">${v}</div><div class="acts"><button class="b sm" onclick="toast('已发起咨询')">咨询</button></div></div>`).join('')}</div>`;
+  }
+  $('#opcPg').innerHTML=h;
+}
+function opsView(){
+  let h=`<div class="h1">孵化器运营<small>重庆某大学 OPC 校园孵化器 · 产业 OPC（城市更新、空间智能）</small></div>
+  <div class="kpi">${[['入驻 OPC','36','本学期 +14'],['已注册','21','15 家注册中'],['本学期营收','¥38.6 万','示例'],['带动就业','9 人','签 1 年以上合同'],['本月 Token','8.6M','集中采购 · 按需分配']].map(([k,v,s])=>`<div class="panel"><div class="mut">${k}</div><b class="num">${v}</b><div class="mut">${s}</div></div>`).join('')}</div>
+  <div class="row" style="margin-top:16px">
+   <div class="panel" style="flex:1.2"><div class="row" style="align-items:center"><div class="h2">可申报的补贴</div><span class="mut" style="margin-left:auto">助理按所在城市匹配 · 以官方文件为准</span></div>
+    <table style="margin-top:6px"><tr><th>政策</th><th>内容</th><th>状态</th><th></th></tr>
+     <tr><td>重庆 · 人工智能 OPC 十二条 · 场地服务补助</td><td class="mut">为 OPC 提供场地、孵化、算力的载体，按服务成效 4000 元/年/户</td><td><span class="tg o">材料齐</span></td><td><button class="b sm p" onclick="openM(declM())">生成申报材料</button></td></tr>
+     <tr><td>区级 · OPC 社区 Token 支持</td><td class="mut">按 Token 实际消耗核定（示例，待查本区文件）</td><td><span class="tg y">待查文件</span></td><td><button class="b sm" onclick="toast('已提醒：查询区经信委最新文件')">提醒我</button></td></tr>
+     <tr><td>重庆 · 大学生创业启航计划</td><td class="mut">35 岁以内毕业生 AI OPC 项目 1—5 万元/个</td><td><span class="tg s">3 家符合</span></td><td><button class="b sm" onclick="toast('已通知 3 家 OPC 准备材料')">通知学生</button></td></tr>
+    </table>
+    </div>
+   <div class="panel" style="flex:1"><div class="h2">各 OPC 本月 Token 用量</div><div class="mut">百万 token · 平台逐笔记账，可导出凭证</div>
+    <div class="cls" style="margin-top:12px">${[['光晓空间设计',1.42],['渝见数字',1.18],['山城孪生',0.96],['青砖工作室',0.71],['其他 32 家',4.33]].map(([k,v])=>`<div class="r"><span style="width:110px">${k}</span><div class="bar" style="height:10px"><i style="width:${v/4.5*100}%;background:#3987e5"></i></div><span class="num" style="width:40px;text-align:right">${v}</span></div>`).join('')}</div>
+    <div class="acts"><button class="b" onclick="toast('已导出本月 Token 用量与费用凭证')">导出凭证</button><button class="b" onclick="toast('已向 36 家 OPC 分配本月点数')">分配点数</button></div></div>
+  </div>
+  <div class="panel" style="margin-top:16px"><div class="row" style="align-items:center"><div class="h2">入驻 OPC</div><span class="mut" style="margin-left:auto">运营台账自动生成：入驻、注册、培训活动、订单对接、营收、就业</span></div>
+   <table style="margin-top:6px"><tr><th>工作室</th><th>负责人</th><th>状态</th><th>本学期订单</th><th>营收（示例）</th><th>Token</th></tr>
+   ${[['光晓空间设计','林晓（建筑 26 级）','注册中 3/6','2','¥4,860','1.42M'],['渝见数字','王子涵（建筑 25 级）','已注册','5','¥21,300','1.18M'],['山城孪生','刘一诺（测绘 24 级）','已注册','3','¥8,900','0.96M']].map(r=>`<tr>${r.map((c,i)=>`<td class="${i>2?'num':''}">${c}</td>`).join('')}</tr>`).join('')}</table></div>`;
+  $('#opcPg').innerHTML=h;
+}
+function declM(){return `<div class="h2">生成申报材料 · 场地服务补助</div><div class="steps" style="margin:12px 0">${['入驻 OPC 名册（21 家已注册）','场地与服务记录（培训 12 场、活动 6 场）','算力支持凭证（Token 用量与费用）','孵化成效（营收、就业）'].map(s=>`<div class="st d"><i></i>${s}</div>`).join('')}</div><div class="mut">已生成飞书文档，提交前请核对当地最新文件要求。</div><div class="acts" style="justify-content:flex-end"><button class="b" onclick="closeM()">关闭</button><button class="b p" onclick="closeM();toast('已在飞书云文档打开申报材料')">打开文档</button></div>`}
+
+/* ================= 我 ================= */
+function renderMe(){
+  if(S.role==='ops'){$('#mePg').innerHTML='<div class="h1">我</div><div class="panel" style="margin-top:14px">运营账号 · 设置（演示）</div>';return}
+  const tea=S.role==='tea';
+  $('#mePg').innerHTML=`<div class="h1">我<small>${tea?'和学生用同一套平台':'在校是学习平台，毕业是工作平台'}</small></div>
+  <div class="row" style="margin-top:14px">
+   <div class="panel wallet" style="flex:1"><div class="row" style="align-items:center"><div class="h2">点数钱包</div><button class="b sm" style="margin-left:auto" onclick="openM(rechargeM())">充值</button></div>
+    <div class="num" style="font-size:40px;font-weight:800;margin-top:6px">${fmt(S.sub+S.bal)}<span style="font-size:14px;font-weight:400;color:var(--t2)"> 点可用</span></div>
+    <div style="display:flex;justify-content:space-between;margin-top:10px"><span>学校补贴</span><span class="num">${fmt(S.sub)} / ${fmt(S.subT)}</span></div><div class="bar" style="margin:6px 0;background:rgba(255,255,255,.15)"><i style="width:${S.sub/S.subT*100}%;background:#fff"></i></div>
+    <div class="mut" style="color:rgba(255,255,255,.6)">本学期有效，到期清零，优先扣除</div>
+    <div style="display:flex;justify-content:space-between;margin-top:10px"><span>个人余额</span><span class="num">${fmt(S.bal)}</span></div><div class="mut" style="color:rgba(255,255,255,.6)">自己充值，长期有效 · 毕业后继续使用</div></div>
+   <div class="panel" style="flex:1.2"><div class="row" style="align-items:center"><div class="h2">技能</div><span class="mut" style="margin-left:auto">${tea?'—':'Lv'+S.lv+' · 来自课题评价与项目交付'}</span></div>
+    <div class="hexes">${[['观察构图',5],['CNCUBE',4],['AI 协作',4],['沟通协作',3],['空间尺度',3],['设计表达',2]].map(([k,v])=>`<div class="hx"><div class="mut">${k}</div><div class="lv num">Lv${v}</div></div>`).join('')}</div></div>
+  </div>
+  <div class="row" style="margin-top:16px">
+   <div class="panel" style="flex:1"><div class="h2">桌面助手</div><div class="row" style="align-items:center;gap:10px;margin-top:8px"><span class="ok">✓</span>已连接 · 林晓的电脑 · Windows 11 · RTX 4060</div><div class="mut" style="margin-top:6px">CNCUBE 随「筑年」订阅到 2027-01-31 · 用 CNCUBE 需 Windows + RTX 3070 级以上显卡（以配置说明为准）· 在机房也可用自己的账号登录</div></div>
+   <div class="panel" style="flex:1"><div class="h2">数据与隐私</div><div style="font-size:13px;color:var(--t2);margin-top:8px;line-height:1.9">知识库存在你自己的飞书多维表格里，归你本人所有<br>学习数据分析：2026-09-08 已授权 · <a style="color:var(--rl);cursor:pointer" onclick="toast('已撤回授权（演示）')">撤回</a><br>毕业后：账号、知识库、作品集保留，平台变成你的工作平台</div></div>
+  </div>`;
+}
+function rechargeM(){return `<div class="h2">充值点数</div><div class="row" style="gap:10px;margin:14px 0">${[500,1000,3000].map(n=>`<button class="b" style="flex:1;border-radius:12px;padding:12px" onclick="S.bal+=${n};hud();closeM();renderMe();toast('充值成功 +${n} 点（演示）')">${fmt(n)} 点<br><span class="mut">示例 ¥${n/10}</span></button>`).join('')}</div><div class="mut">价格为示例，待定。</div>`}
+
+function toggleTheme(force){const l=force!=null?force:!document.body.classList.contains('light');document.body.classList.toggle('light',l);$('#thm').textContent=l?'☾ 深色':'☀ 浅色';if(S.view==='kn')renderKn();else if($('#miniG'))stageGraph();if(S.view==='me')renderMe()}
+/* ---------- 启动 ---------- */
+hud();stageDefault();
+(function(){const h=new URLSearchParams(location.hash.slice(1));if(h.get('theme')==='light')toggleTheme(true);if(!h.has('skip'))return;$('#onb').classList.add('hide');
+  if(h.get('role'))$(`#roles [data-r="${h.get('role')}"]`).click();else brief();
+  if(h.get('v'))go(h.get('v'));if(h.get('tp'))openTp(h.get('tp'));if(h.get('tab')){if(S.view==='opc'){S.opcTab=h.get('tab');renderOpc()}else{S.tpTab=h.get('tab');renderTp()}}
+  if(h.get('k')){S.kSel=h.get('k');renderKn()}
+  if(h.get('replay'))setTimeout(()=>G&&G.replay(),200);
+  const d=h.get('demo');if(d)A[d]()})();
+</script>
+</body>
+</html>

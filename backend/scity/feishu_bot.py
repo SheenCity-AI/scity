@@ -28,7 +28,7 @@ from lark_oapi.api.im.v1 import ReplyMessageRequest, ReplyMessageRequestBody
 from .assistant import Assistant
 from .models import make_session_factory
 from .settings import Settings, load_settings
-from .wallet import ChargeResult, WalletService, WalletView
+from .wallet import ChargeResult, ModelCall, WalletService, WalletView
 
 log = logging.getLogger("scity.bot")
 
@@ -85,7 +85,9 @@ class CardStream:
         self._message_id = message_id
         self._card_id = ""
         self._sequence = 0
-        self._last_push = 0.0
+        self._latest = ""
+        self._pushed = ""
+        self._pusher: asyncio.Task | None = None
 
     def _next(self) -> int:
         self._sequence += 1
@@ -100,6 +102,7 @@ class CardStream:
         reply = ReplyMessageRequestBody.builder().msg_type("interactive").content(content).uuid(uuid4().hex).build()
         _check(await self._client.im.v1.message.areply(
             ReplyMessageRequest.builder().message_id(self._message_id).request_body(reply).build()), "回复卡片")
+        self._pusher = asyncio.create_task(self._push_loop())
 
     async def _set(self, element: str, text: str) -> None:
         body = ContentCardElementRequestBody.builder().uuid(uuid4().hex).content(text).sequence(self._next()).build()
@@ -107,13 +110,33 @@ class CardStream:
                    .request_body(body).build())
         _check(await self._client.cardkit.v1.card_element.acontent(request), "更新卡片")
 
-    async def update(self, text: str) -> None:
-        now = time.monotonic()
-        if now - self._last_push >= UPDATE_INTERVAL:
-            self._last_push = now
-            await self._set(ANSWER_ELEMENT, text)
+    def update(self, text: str) -> None:
+        """只记下最新内容，由后台任务推送；读模型输出的循环不等飞书接口。"""
+        self._latest = text
+
+    async def _push_loop(self) -> None:
+        while True:
+            await asyncio.sleep(UPDATE_INTERVAL)
+            if self._latest != self._pushed:
+                text = self._latest
+                await self._set(ANSWER_ELEMENT, text)
+                self._pushed = text
+
+    async def _stop_pusher(self) -> None:
+        if self._pusher is None:
+            return
+        self._pusher.cancel()
+        try:
+            await self._pusher
+        except asyncio.CancelledError:
+            pass
+        except FeishuError:
+            # 中途刷新失败不影响最终结果，结束时还会写一次完整内容。
+            log.exception("流式刷新失败")
+        self._pusher = None
 
     async def finish(self, text: str, meta: str) -> None:
+        await self._stop_pusher()
         await self._set(ANSWER_ELEMENT, text)
         await self._set(META_ELEMENT, meta)
         settings = json.dumps({"config": {"streaming_mode": False, "summary": {"content": text[:40]}}},
@@ -150,7 +173,7 @@ class Bot:
             await self._handle(data)
         except Exception:
             log.exception("处理消息失败 message=%s", message.message_id)
-            await self._reply_text(message.message_id, "抱歉，这次出错了，没有扣点数。请再发一次。")
+            await self._reply_text(message.message_id, "抱歉，这次出错了，请再发一次。")
 
     async def _reply_text(self, message_id: str, text: str) -> None:
         body = (ReplyMessageRequestBody.builder().msg_type("text")
@@ -187,23 +210,42 @@ class Bot:
         started = time.monotonic()
         card = CardStream(self._client, message_id)
         await card.open()
-        turn = await self._assistant.start_turn(user_id, text)
         answer = ""
+        calls: list[ModelCall] = []
+        failed = False
         try:
+            turn = await self._assistant.start_turn(user_id, text)
+            calls = turn.calls
             async for chunk in turn.stream():
                 answer += chunk
-                await card.update(answer)
-        finally:
-            # 中途出错也按已发生的模型调用结算，保证账本和火山账单对得上。
-            result = self._wallet.charge_turn(user_id, turn.calls, message_id)
-            log.info("answered message=%s user=%s calls=%s input=%s output=%s points=%s shortfall=%s seconds=%.1f",
-                     message_id, user_id, len(turn.calls), sum(c.input_tokens for c in turn.calls),
-                     sum(c.output_tokens for c in turn.calls), result.points, result.shortfall,
-                     time.monotonic() - started)
+                card.update(answer)
+        except Exception:
+            failed = True
+            log.exception("生成回答失败 message=%s", message_id)
+        # 中途出错也按已发生的模型调用结算，保证账本和火山账单对得上。
+        result = self._wallet.charge_turn(user_id, calls, message_id)
+        log.info("answered message=%s user=%s calls=%s input=%s output=%s points=%s shortfall=%s failed=%s seconds=%.1f",
+                 message_id, user_id, len(calls), sum(c.input_tokens for c in calls),
+                 sum(c.output_tokens for c in calls), result.points, result.shortfall, failed,
+                 time.monotonic() - started)
+        if failed:
+            answer = (answer + "\n\n" if answer else "") + "抱歉，这次回答中断了，请再发一次。"
         await card.finish(answer or "这次没有生成内容，请换个说法再试一次。", format_charge(result))
+
+    def _warm_up(self) -> None:
+        started = time.monotonic()
+        try:
+            calls = asyncio.run_coroutine_threadsafe(self._assistant.warm_up(), self._loop).result(timeout=90)
+        except Exception:
+            log.exception("启动热身失败，继续运行")
+            return
+        # 这点用量不计入任何学生，记在日志里，和火山账单对账时可以核对。
+        log.info("warm_up seconds=%.1f input=%s output=%s", time.monotonic() - started,
+                 sum(c.input_tokens for c in calls), sum(c.output_tokens for c in calls))
 
     def run(self) -> None:
         handler = lark.EventDispatcherHandler.builder("", "").register_p2_im_message_receive_v1(self.on_message).build()
+        self._warm_up()
         client = lark.ws.Client(self._settings.feishu_app_id, self._settings.feishu_app_secret,
                                 event_handler=handler, log_level=lark.LogLevel.WARNING)
         log.info("长连接启动 app=%s", self._settings.feishu_app_id)

@@ -14,6 +14,7 @@ from .settings import DEFAULT_PROMPT, Settings
 from .wallet import ModelCall, WalletService
 
 APP_NAME = "scity"
+WARM_UP_USER = 0  # 不对应任何真实账号
 
 
 class Turn:
@@ -77,6 +78,14 @@ class Assistant:
             run_config=RunConfig(streaming_mode=StreamingMode.SSE),
         )
         return Turn(events, self._model)
+
+    async def warm_up(self) -> list[ModelCall]:
+        """启动时先跑一轮，让框架加载完，学生的第一句话不用多等约 8 秒。用完即删会话。"""
+        turn = await self.start_turn(WARM_UP_USER, "你好")
+        async for _ in turn.stream():
+            pass
+        await self.reset(WARM_UP_USER)
+        return turn.calls
 
     async def reset(self, user_id: int) -> None:
         await self._sessions.delete_session(app_name=APP_NAME, user_id=str(user_id),

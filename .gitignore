@@ -1,0 +1,12 @@
+# 本地环境与运行数据
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+backend/data/
+backend/logs/
+*.log
+
+# 密钥与配置绝不进仓库
+*.env
+.env*

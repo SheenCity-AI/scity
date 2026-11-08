@@ -1,0 +1,5 @@
+veadk-python==1.1.21
+lark-oapi==1.7.5
+aiosqlite
+pytest
+pytest-asyncio

@@ -211,9 +211,12 @@ class Bot:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    for noisy in ("LiteLLM", "httpx", "httpcore", "google_adk", "google.adk", "veadk"):
-        logging.getLogger(noisy).setLevel(logging.ERROR)
+    # VeADK 导入时会接管根日志，这里给机器人单独一个通道，避免运行记录被吞掉。
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    log.addHandler(handler)
+    log.setLevel(logging.INFO)
+    log.propagate = False
     Bot(load_settings()).run()
 
 

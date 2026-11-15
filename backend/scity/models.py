@@ -1,89 +1,159 @@
-"""账号、班级、点数账本和模型用量的数据表。"""
+"""数据表：人、空间、成员关系、工作区、钱包、点数流水和模型用量。
+
+人不属于任何空间；班级、学校、孵化器、OPC、项目组都是空间，可以有上下级。
+一个课题或一个项目是空间下的一个工作区；不在任何工作区里就是主聊天。
+"""
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, create_engine
+from sqlalchemy import (BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint,
+                        create_engine, text)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
+
+LEARNING_SPACES = ("school", "class")
+BUSINESS_SPACES = ("incubator", "opc", "project_team")
+ROLES = {"learning": ("student", "teacher"), "business": ("member", "manager")}
+WORKSPACE_KINDS = {"learning": "topic", "business": "project"}
 
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def space_category(kind: str) -> str:
+    return "learning" if kind in LEARNING_SPACES else "business"
+
+
 class Base(DeclarativeBase):
     pass
 
 
-class School(Base):
-    __tablename__ = "school"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(100), unique=True)
-
-
-class Klass(Base):
-    __tablename__ = "klass"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    school_id: Mapped[int] = mapped_column(ForeignKey("school.id"))
-    name: Mapped[str] = mapped_column(String(100))
-    school: Mapped[School] = relationship()
-
-
 class User(Base):
+    """人。档案跟人走，不随班级或公司变化。"""
+
     __tablename__ = "user"
     id: Mapped[int] = mapped_column(primary_key=True)
     feishu_open_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(64), default="")
-    klass_id: Mapped[int] = mapped_column(ForeignKey("klass.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-    klass: Mapped[Klass] = relationship()
-    wallet: Mapped["Wallet"] = relationship(back_populates="user", uselist=False)
+
+
+class Space(Base):
+    __tablename__ = "space"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(20))
+    name: Mapped[str] = mapped_column(String(100))
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("space.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    parent: Mapped["Space | None"] = relationship(remote_side=[id])
+
+    @property
+    def category(self) -> str:
+        return space_category(self.kind)
+
+
+class Membership(Base):
+    """一个人在一个空间里的角色。离开后保留记录，active 置否。"""
+
+    __tablename__ = "membership"
+    __table_args__ = (UniqueConstraint("user_id", "space_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
+    space_id: Mapped[int] = mapped_column(ForeignKey("space.id"), index=True)
+    role: Mapped[str] = mapped_column(String(20))
+    active: Mapped[bool] = mapped_column(default=True)
+    joined_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    left_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class Workspace(Base):
+    """工作区：空间里的一个课题或一个项目。归档后只读。"""
+
+    __tablename__ = "workspace"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    space_id: Mapped[int] = mapped_column(ForeignKey("space.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))  # topic / project
+    name: Mapped[str] = mapped_column(String(100))
+    course_ref: Mapped[str] = mapped_column(String(100), default="")  # 引用的课程包及版本
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    space: Mapped[Space] = relationship()
 
 
 class Wallet(Base):
-    """点数钱包：学校补贴优先扣除、到期作废；个人余额长期有效。"""
+    """点数钱包，三种：
+
+    只有 user_id：个人钱包，长期有效；
+    user_id 和 space_id 都有：空间发给个人的额度（学校补贴、孵化器分配），可以有到期时间；
+    只有 space_id：空间公用的额度（项目预算）。
+    """
 
     __tablename__ = "wallet"
-    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), primary_key=True)
-    subsidy: Mapped[int] = mapped_column(Integer, default=0)
-    subsidy_total: Mapped[int] = mapped_column(Integer, default=0)
-    subsidy_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    __table_args__ = (
+        CheckConstraint("user_id IS NOT NULL OR space_id IS NOT NULL", name="wallet_has_owner"),
+        Index("wallet_personal", "user_id", unique=True, sqlite_where=text("space_id IS NULL"),
+              postgresql_where=text("space_id IS NULL")),
+        Index("wallet_allocation", "user_id", "space_id", unique=True,
+              sqlite_where=text("user_id IS NOT NULL AND space_id IS NOT NULL"),
+              postgresql_where=text("user_id IS NOT NULL AND space_id IS NOT NULL")),
+        Index("wallet_pool", "space_id", unique=True, sqlite_where=text("user_id IS NULL"),
+              postgresql_where=text("user_id IS NULL")),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id"), nullable=True)
+    space_id: Mapped[int | None] = mapped_column(ForeignKey("space.id"), nullable=True)
     balance: Mapped[int] = mapped_column(Integer, default=0)
-    user: Mapped[User] = relationship(back_populates="wallet")
+    granted_total: Mapped[int] = mapped_column(Integer, default=0)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    space: Mapped[Space | None] = relationship()
 
 
 class LedgerEntry(Base):
-    """点数流水，每一次变动一条，只增不改。"""
+    """点数流水，每个钱包每次变动一条，只增不改。
+
+    kind：grant 发放 / charge 扣点 / shortfall 点数不够时没扣到的差额（wallet_id 为空）。
+    user_id、space_id、workspace_id 记的是这笔变动发生在谁、哪个空间、哪个工作区。
+    """
 
     __tablename__ = "ledger_entry"
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
-    kind: Mapped[str] = mapped_column(String(20))  # grant / charge
-    subsidy_delta: Mapped[int] = mapped_column(Integer, default=0)
-    balance_delta: Mapped[int] = mapped_column(Integer, default=0)
-    shortfall: Mapped[int] = mapped_column(Integer, default=0)
+    wallet_id: Mapped[int | None] = mapped_column(ForeignKey("wallet.id"), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(20))
+    delta: Mapped[int] = mapped_column(Integer)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id"), nullable=True, index=True)
+    space_id: Mapped[int | None] = mapped_column(ForeignKey("space.id"), nullable=True, index=True)
+    workspace_id: Mapped[int | None] = mapped_column(ForeignKey("workspace.id"), nullable=True, index=True)
     ref: Mapped[str] = mapped_column(String(64), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class UsageRecord(Base):
-    """每次模型调用一条，学校和班级在写入时固化，学生转班不影响历史统计。"""
+    """每次模型调用一条：谁、在哪个空间、哪个工作区、做什么用。
+
+    主聊天的 space_id、workspace_id 为空；系统自己的调用（如启动热身）user_id 也为空。
+    cost_micro 是按模型成本价估算的费用，单位百万分之一元，用于累计费用上限。
+    """
 
     __tablename__ = "usage_record"
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
-    klass_id: Mapped[int] = mapped_column(ForeignKey("klass.id"), index=True)
-    school_id: Mapped[int] = mapped_column(ForeignKey("school.id"), index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id"), nullable=True, index=True)
+    space_id: Mapped[int | None] = mapped_column(ForeignKey("space.id"), nullable=True, index=True)
+    workspace_id: Mapped[int | None] = mapped_column(ForeignKey("workspace.id"), nullable=True, index=True)
+    purpose: Mapped[str] = mapped_column(String(20), default="chat")
     model: Mapped[str] = mapped_column(String(64))
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
     total_tokens: Mapped[int] = mapped_column(Integer, default=0)
     points: Mapped[int] = mapped_column(Integer, default=0)
+    cost_micro: Mapped[int] = mapped_column(BigInteger, default=0)
     ref: Mapped[str] = mapped_column(String(64), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
 
-def make_session_factory(database_url: str) -> sessionmaker:
+def make_session_factory(database_url: str, create: bool = False) -> sessionmaker:
+    """create=True 时直接按当前定义建表，只用于测试和本地试用；正式环境用 alembic 升级。"""
     engine = create_engine(database_url)
-    Base.metadata.create_all(engine)
+    if create:
+        Base.metadata.create_all(engine)
     return sessionmaker(engine, expire_on_commit=False)

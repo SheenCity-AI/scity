@@ -11,10 +11,11 @@ from google.genai import types
 from veadk import Agent
 
 from .settings import DEFAULT_PROMPT, Settings
+from .spaces import Context, SpaceService
 from .wallet import ModelCall, WalletService
 
 APP_NAME = "scity"
-WARM_UP_USER = 0  # 不对应任何真实账号
+WARM_UP = Context(user_id=0)  # 不对应任何真实账号
 
 
 class Turn:
@@ -38,14 +39,15 @@ class Turn:
 
 
 class Assistant:
-    def __init__(self, settings: Settings, wallet: WalletService):
+    def __init__(self, settings: Settings, spaces: SpaceService, wallet: WalletService):
         self._model = settings.default_model
         self._sessions = DatabaseSessionService(settings.session_database_url)
 
         def get_my_points(tool_context: ToolContext) -> dict:
-            """查询当前学生的点数：学校补贴和个人余额。"""
-            view = wallet.view(int(tool_context.user_id))
-            return {"学校补贴": view.subsidy, "个人余额": view.balance, "合计可用": view.available}
+            """查询当前用户在这里能用的点数：空间发的额度（如学校补贴）和个人余额。"""
+            ctx = spaces.context(int(tool_context.user_id), tool_context.state.get("workspace_id"))
+            view = wallet.view(ctx)
+            return {"空间额度": view.subsidy, "个人余额": view.balance, "合计可用": view.available}
 
         agent = Agent(
             name="scity_assistant",
@@ -61,19 +63,21 @@ class Assistant:
         self._runner = Runner(agent=agent, app_name=APP_NAME, session_service=self._sessions)
 
     @staticmethod
-    def _session_id(user_id: int) -> str:
-        return f"user-{user_id}"
+    def _session_id(ctx: Context) -> str:
+        """主聊天和每个工作区各有一份对话记忆，互不交叉。"""
+        main = f"user-{ctx.user_id}"
+        return main if ctx.workspace_id is None else f"{main}-ws-{ctx.workspace_id}"
 
-    async def _ensure_session(self, user_id: int) -> None:
-        kwargs = {"app_name": APP_NAME, "user_id": str(user_id), "session_id": self._session_id(user_id)}
+    async def _ensure_session(self, ctx: Context) -> None:
+        kwargs = {"app_name": APP_NAME, "user_id": str(ctx.user_id), "session_id": self._session_id(ctx)}
         if await self._sessions.get_session(**kwargs) is None:
-            await self._sessions.create_session(**kwargs)
+            await self._sessions.create_session(state={"workspace_id": ctx.workspace_id}, **kwargs)
 
-    async def start_turn(self, user_id: int, text: str) -> Turn:
-        await self._ensure_session(user_id)
+    async def start_turn(self, ctx: Context, text: str) -> Turn:
+        await self._ensure_session(ctx)
         events = self._runner.run_async(
-            user_id=str(user_id),
-            session_id=self._session_id(user_id),
+            user_id=str(ctx.user_id),
+            session_id=self._session_id(ctx),
             new_message=types.Content(role="user", parts=[types.Part(text=text)]),
             run_config=RunConfig(streaming_mode=StreamingMode.SSE),
         )
@@ -81,12 +85,12 @@ class Assistant:
 
     async def warm_up(self) -> list[ModelCall]:
         """启动时先跑一轮，让框架加载完，学生的第一句话不用多等约 8 秒。用完即删会话。"""
-        turn = await self.start_turn(WARM_UP_USER, "你好")
+        turn = await self.start_turn(WARM_UP, "你好")
         async for _ in turn.stream():
             pass
-        await self.reset(WARM_UP_USER)
+        await self.reset(WARM_UP)
         return turn.calls
 
-    async def reset(self, user_id: int) -> None:
-        await self._sessions.delete_session(app_name=APP_NAME, user_id=str(user_id),
-                                            session_id=self._session_id(user_id))
+    async def reset(self, ctx: Context) -> None:
+        await self._sessions.delete_session(app_name=APP_NAME, user_id=str(ctx.user_id),
+                                            session_id=self._session_id(ctx))

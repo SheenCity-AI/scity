@@ -1,4 +1,7 @@
-"""运行配置：从环境变量和 SCITY_ENV_FILES 指定的文件读取，代码里不放任何密钥。"""
+"""运行配置：从环境变量和 SCITY_ENV_FILES 指定的文件读取，代码里不放任何密钥。
+
+SCITY_SPEND_CAP_YUAN：累计模型费用上限（元），到了就不再调用模型；不设就不限制。
+"""
 from __future__ import annotations
 
 import json
@@ -12,6 +15,10 @@ DEFAULT_MODEL = "doubao-seed-2-1-turbo-260628"
 
 # 演示用的换算，不代表真实定价；真实价格放私有目录的 pricing.json。
 DEMO_PRICING = {"default": {"input_per_1k": 1.0, "output_per_1k": 3.0}}
+
+# 模型成本价（元 / 千 token），用于累计费用上限；真实价格放私有目录的 model_costs.json。
+# 没有配置时按偏高的数估算，宁可提前拦截。
+DEFAULT_COSTS = {"default": {"input_per_1k": 0.01, "output_per_1k": 0.03}}
 
 DEFAULT_PROMPT = (
     "你是 SCity 助手，陪学生学习的 AI 助理。回答简洁、直接，先给结论。"
@@ -44,6 +51,8 @@ class Settings:
     private_dir: Path
     default_model: str
     pricing: dict = field(default_factory=dict)
+    model_costs: dict = field(default_factory=dict)
+    spend_cap_yuan: float | None = None
 
     def prompt(self, name: str, default: str) -> str:
         path = self.private_dir / "prompts" / f"{name}.md"
@@ -55,8 +64,12 @@ def load_settings() -> Settings:
     data_dir = Path(env.get("SCITY_DATA_DIR", BACKEND_DIR / "data"))
     data_dir.mkdir(parents=True, exist_ok=True)
     private_dir = Path(env.get("SCITY_PRIVATE_DIR", BACKEND_DIR.parent.parent / "scity-private"))
-    pricing_file = private_dir / "pricing.json"
-    pricing = json.loads(pricing_file.read_text(encoding="utf-8")) if pricing_file.is_file() else DEMO_PRICING
+
+    def private_json(name: str, default: dict) -> dict:
+        path = private_dir / name
+        return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else default
+
+    cap = env.get("SCITY_SPEND_CAP_YUAN", "")
     return Settings(
         ark_api_key=env.get("ARK_API_KEY", ""),
         ark_base_url=env.get("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
@@ -66,5 +79,7 @@ def load_settings() -> Settings:
         session_database_url=env.get("SCITY_SESSION_DATABASE_URL", f"sqlite+aiosqlite:///{data_dir}/sessions.db"),
         private_dir=private_dir,
         default_model=env.get("SCITY_MODEL", DEFAULT_MODEL),
-        pricing=pricing,
+        pricing=private_json("pricing.json", DEMO_PRICING),
+        model_costs=private_json("model_costs.json", DEFAULT_COSTS),
+        spend_cap_yuan=float(cap) if cap else None,
     )

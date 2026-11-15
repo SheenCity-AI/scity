@@ -26,9 +26,11 @@ from lark_oapi.api.cardkit.v1 import (
 from lark_oapi.api.im.v1 import ReplyMessageRequest, ReplyMessageRequestBody
 
 from .assistant import Assistant
+from .demo import DemoEnrollment
 from .models import make_session_factory
 from .settings import Settings, load_settings
-from .wallet import ChargeResult, ModelCall, WalletService, WalletView
+from .spaces import Context, SpaceService
+from .wallet import ChargeResult, ModelCall, SpendCapReached, WalletService, WalletView
 
 log = logging.getLogger("scity.bot")
 
@@ -37,6 +39,7 @@ META_ELEMENT = "meta"
 UPDATE_INTERVAL = 0.3
 MENTION = re.compile(r"@_user_\d+")
 SEEN_LIMIT = 2000
+CAP_REACHED = "平台的演示额度已经用完，暂时不能回答。"
 
 
 def build_card() -> str:
@@ -56,6 +59,7 @@ def build_card() -> str:
 
 
 def format_wallet(view: WalletView) -> str:
+    # 机器人私聊是主聊天，这里的空间额度就是学校补贴
     return f"学校补贴 {view.subsidy:,} 点 · 个人余额 {view.balance:,} 点"
 
 
@@ -149,8 +153,11 @@ class CardStream:
 class Bot:
     def __init__(self, settings: Settings):
         self._settings = settings
-        self._wallet = WalletService(make_session_factory(settings.database_url), settings.pricing)
-        self._assistant = Assistant(settings, self._wallet)
+        sessions = make_session_factory(settings.database_url)
+        self._spaces = SpaceService(sessions)
+        self._wallet = WalletService(sessions, settings.pricing, settings.model_costs)
+        self._demo = DemoEnrollment(sessions, self._spaces, self._wallet)
+        self._assistant = Assistant(settings, self._spaces, self._wallet)
         self._client = lark.Client.builder().app_id(settings.feishu_app_id).app_secret(settings.feishu_app_secret).build()
         self._locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._seen: OrderedDict[str, None] = OrderedDict()
@@ -192,21 +199,29 @@ class Bot:
         text = extract_text(message.content)
         if not text:
             return
-        user_id = self._wallet.ensure_user(data.event.sender.sender_id.open_id)
+        # 机器人私聊就是主聊天，不属于任何工作区
+        ctx = self._spaces.context(self._demo.enroll(data.event.sender.sender_id.open_id), None)
         if text in ("/点数", "点数"):
-            await self._reply_text(message_id, format_wallet(self._wallet.view(user_id)))
+            await self._reply_text(message_id, format_wallet(self._wallet.view(ctx)))
             return
-        async with self._locks[user_id]:
+        async with self._locks[ctx.user_id]:
             if text in ("/新对话", "新对话"):
-                await self._assistant.reset(user_id)
+                await self._assistant.reset(ctx)
                 await self._reply_text(message_id, "好的，我们重新开始。")
                 return
-            if self._wallet.view(user_id).available <= 0:
+            try:
+                self._wallet.check_spend_cap(self._settings.spend_cap_yuan)
+            except SpendCapReached:
+                log.error("spend_cap_reached message=%s spent=%.2f cap=%s", message_id,
+                          self._wallet.spent_yuan(), self._settings.spend_cap_yuan)
+                await self._reply_text(message_id, CAP_REACHED)
+                return
+            if self._wallet.view(ctx).available <= 0:
                 await self._reply_text(message_id, "你的点数用完了，充值或等学校发放后可以继续使用。")
                 return
-            await self._answer(user_id, message_id, text)
+            await self._answer(ctx, message_id, text)
 
-    async def _answer(self, user_id: int, message_id: str, text: str) -> None:
+    async def _answer(self, ctx: Context, message_id: str, text: str) -> None:
         started = time.monotonic()
         card = CardStream(self._client, message_id)
         await card.open()
@@ -214,7 +229,7 @@ class Bot:
         calls: list[ModelCall] = []
         failed = False
         try:
-            turn = await self._assistant.start_turn(user_id, text)
+            turn = await self._assistant.start_turn(ctx, text)
             calls = turn.calls
             async for chunk in turn.stream():
                 answer += chunk
@@ -223,9 +238,9 @@ class Bot:
             failed = True
             log.exception("生成回答失败 message=%s", message_id)
         # 中途出错也按已发生的模型调用结算，保证账本和火山账单对得上。
-        result = self._wallet.charge_turn(user_id, calls, message_id)
+        result = self._wallet.charge_turn(ctx, calls, message_id)
         log.info("answered message=%s user=%s calls=%s input=%s output=%s points=%s shortfall=%s failed=%s seconds=%.1f",
-                 message_id, user_id, len(calls), sum(c.input_tokens for c in calls),
+                 message_id, ctx.user_id, len(calls), sum(c.input_tokens for c in calls),
                  sum(c.output_tokens for c in calls), result.points, result.shortfall, failed,
                  time.monotonic() - started)
         if failed:
@@ -235,11 +250,16 @@ class Bot:
     def _warm_up(self) -> None:
         started = time.monotonic()
         try:
+            self._wallet.check_spend_cap(self._settings.spend_cap_yuan)
             calls = asyncio.run_coroutine_threadsafe(self._assistant.warm_up(), self._loop).result(timeout=90)
+        except SpendCapReached:
+            log.error("spend_cap_reached 跳过启动热身 spent=%.2f", self._wallet.spent_yuan())
+            return
         except Exception:
             log.exception("启动热身失败，继续运行")
             return
-        # 这点用量不计入任何学生，记在日志里，和火山账单对账时可以核对。
+        # 这点用量不扣任何人的点数，但记入用量表，计入累计费用。
+        self._wallet.record_system_usage(calls, "warmup", f"warmup-{int(time.time())}")
         log.info("warm_up seconds=%.1f input=%s output=%s", time.monotonic() - started,
                  sum(c.input_tokens for c in calls), sum(c.output_tokens for c in calls))
 

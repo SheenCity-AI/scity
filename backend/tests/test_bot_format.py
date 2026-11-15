@@ -2,10 +2,13 @@ import asyncio
 import json
 import time
 
-from scity.feishu_bot import ANSWER_ELEMENT, META_ELEMENT, Bot, CardStream, FeishuError, build_card, extract_text, format_charge
-from scity.models import make_session_factory
-from scity.settings import DEMO_PRICING
-from scity.wallet import ChargeResult, ModelCall, WalletService, WalletView
+from types import SimpleNamespace
+
+from scity.demo import DEMO_BALANCE, DEMO_SUBSIDY, DemoEnrollment
+from scity.feishu_bot import (ANSWER_ELEMENT, CAP_REACHED, META_ELEMENT, Bot, CardStream, FeishuError, build_card,
+                              extract_text, format_charge)
+from scity.settings import DEFAULT_COSTS
+from scity.wallet import ChargeResult, ModelCall, WalletView
 
 
 def test_extract_text_removes_mentions():
@@ -94,24 +97,91 @@ class FakeTurn:
         raise RuntimeError("模型中断")
 
 
-def make_bot(tmp_path, turn):
+def make_bot(sessions, spaces, wallets, turn, cap=None):
     bot = Bot.__new__(Bot)
     bot._client = None
-    bot._wallet = WalletService(make_session_factory(f"sqlite:///{tmp_path}/t.db"), DEMO_PRICING)
+    bot._settings = SimpleNamespace(spend_cap_yuan=cap)
+    bot._spaces, bot._wallet = spaces, wallets
+    bot._demo = DemoEnrollment(sessions, spaces, wallets)
+    bot._locks = {}
+    bot.replies = []
 
     class FakeAssistant:
-        async def start_turn(self, user_id, text):
+        async def start_turn(self, ctx, text):
             return turn
 
+    async def reply_text(message_id, text):
+        bot.replies.append(text)
+
     bot._assistant = FakeAssistant()
+    bot._reply_text = reply_text
     return bot
 
 
-async def test_interrupted_answer_closes_card_and_charges_actual_usage(tmp_path, monkeypatch):
+def message(text, open_id="ou_a"):
+    return SimpleNamespace(event=SimpleNamespace(
+        message=SimpleNamespace(message_id="m1", message_type="text", content=json.dumps({"text": text})),
+        sender=SimpleNamespace(sender_id=SimpleNamespace(open_id=open_id))))
+
+
+async def test_interrupted_answer_closes_card_and_charges_actual_usage(sessions, spaces, wallets, monkeypatch):
     monkeypatch.setattr("scity.feishu_bot.CardStream", FakeCard)
-    bot = make_bot(tmp_path, FakeTurn([]))
-    uid = bot._wallet.ensure_user("ou_a")
-    await bot._answer(uid, "m1", "你好")
+    bot = make_bot(sessions, spaces, wallets, FakeTurn([]))
+    ctx = spaces.context(bot._demo.enroll("ou_a"), None)
+    await bot._answer(ctx, "m1", "你好")
     text, meta = FakeCard.instances[-1].finished
     assert text.startswith("前半段") and "回答中断" in text
     assert "本次消耗 1 点" in meta
+
+
+def test_demo_enrollment_happens_once(sessions, spaces, wallets):
+    demo = DemoEnrollment(sessions, spaces, wallets)
+    uid = demo.enroll("ou_a")
+    assert demo.enroll("ou_a") == uid
+    view = wallets.view(spaces.context(uid, None))
+    assert (view.subsidy, view.balance) == (DEMO_SUBSIDY, DEMO_BALANCE)
+    assert [(m.kind, m.role) for m in spaces.memberships(uid)] == [("class", "student")]
+    other = demo.enroll("ou_b")
+    assert spaces.memberships(other)[0].space_id == spaces.memberships(uid)[0].space_id
+
+
+def test_demo_enrollment_resumes_after_a_half_finished_attempt(sessions, spaces, wallets, monkeypatch):
+    demo = DemoEnrollment(sessions, spaces, wallets)
+    real_grant = wallets.grant
+
+    def fail_on_personal(points, ref, **kwargs):
+        if kwargs.get("space_id") is None:
+            raise RuntimeError("断了")
+        real_grant(points, ref, **kwargs)
+
+    monkeypatch.setattr(wallets, "grant", fail_on_personal)
+    try:
+        demo.enroll("ou_a")
+    except RuntimeError:
+        pass
+    monkeypatch.setattr(wallets, "grant", real_grant)
+    view = wallets.view(spaces.context(demo.enroll("ou_a"), None))
+    assert (view.subsidy, view.balance) == (DEMO_SUBSIDY, DEMO_BALANCE)
+
+
+async def test_first_private_message_asks_for_points_in_main_chat(sessions, spaces, wallets):
+    bot = make_bot(sessions, spaces, wallets, None)
+    await bot._handle(message("点数"))
+    assert bot.replies == [f"学校补贴 {DEMO_SUBSIDY:,} 点 · 个人余额 {DEMO_BALANCE} 点"]
+
+
+async def test_spend_cap_blocks_model_calls_but_not_balance_queries(sessions, spaces, wallets, monkeypatch):
+    monkeypatch.setattr("scity.feishu_bot.CardStream", FakeCard)
+    FakeCard.instances.clear()
+    bot = make_bot(sessions, spaces, wallets, FakeTurn([]), cap=0.05)
+    bot._locks = {bot._demo.enroll("ou_a"): asyncio.Lock()}
+    wallets.record_system_usage([ModelCall("m", 60_000, 0)], "warmup", "boot")  # 测试成本下是 0.06 元
+    await bot._handle(message("你好"))
+    assert bot.replies == [CAP_REACHED]
+    assert FakeCard.instances == []
+    await bot._handle(message("点数"))
+    assert len(bot.replies) == 2 and "学校补贴" in bot.replies[1]
+
+
+def test_unknown_model_cost_is_estimated_high():
+    assert DEFAULT_COSTS["default"]["output_per_1k"] >= 0.03

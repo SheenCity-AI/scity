@@ -75,6 +75,20 @@ class SpaceService:
                 db.flush()
             return user.id
 
+    def display_name(self, user_id: int) -> str:
+        with self._sessions() as db:
+            return db.get(User, user_id).display_name
+
+    def space_path(self, space_id: int) -> str:
+        """含上级的空间名，如“甲学校 / 一班”。"""
+        names: list[str] = []
+        with self._sessions() as db:
+            while space_id is not None:
+                space = db.get(Space, space_id)
+                names.insert(0, space.name)
+                space_id = space.parent_id
+        return " / ".join(names)
+
     def set_display_name(self, user_id: int, name: str) -> None:
         with self._sessions.begin() as db:
             db.get(User, user_id).display_name = name

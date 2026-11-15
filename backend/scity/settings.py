@@ -21,11 +21,6 @@ DEMO_PRICING = {"default": {"input_per_1k": 1.0, "output_per_1k": 3.0}}
 # 没有配置时按偏高的数估算，宁可提前拦截。
 DEFAULT_COSTS = {"default": {"input_per_1k": 0.01, "output_per_1k": 0.03}}
 
-DEFAULT_PROMPT = (
-    "你是 SCity 助手，陪学生学习的 AI 助理。回答简洁、直接，先给结论。"
-    "学生问自己的点数时，调用工具查询，不要猜。"
-)
-
 
 def _read_env_files(paths: str) -> dict[str, str]:
     values: dict[str, str] = {}

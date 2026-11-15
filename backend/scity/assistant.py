@@ -1,4 +1,7 @@
-"""常驻助理：基于 VeADK，流式生成回答，并收集每次模型调用的 token 用量。"""
+"""常驻助理：基于 VeADK，流式生成回答，并收集每次模型调用的 token 用量。
+
+同一个底座上有多套岗位设定（见 personas.py），每轮对话按场合和角色选用一套。
+"""
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
@@ -10,7 +13,8 @@ from google.adk.tools import ToolContext
 from google.genai import types
 from veadk import Agent
 
-from .settings import DEFAULT_PROMPT, Settings
+from .personas import PERSONAS, Persona, persona_for, situation
+from .settings import Settings
 from .spaces import Context, SpaceService
 from .wallet import ModelCall, WalletService
 
@@ -21,9 +25,10 @@ WARM_UP = Context(user_id=0)  # 不对应任何真实账号
 class Turn:
     """一轮对话：逐段产出文字，结束后 calls 里是本轮所有模型调用的用量。"""
 
-    def __init__(self, events: AsyncIterator, model: str):
+    def __init__(self, events: AsyncIterator, model: str, persona: Persona):
         self._events = events
         self._model = model
+        self.persona = persona
         self.calls: list[ModelCall] = []
 
     async def stream(self) -> AsyncIterator[str]:
@@ -49,18 +54,32 @@ class Assistant:
             view = wallet.view(ctx)
             return {"空间额度": view.subsidy, "个人余额": view.balance, "合计可用": view.available}
 
-        agent = Agent(
-            name="scity_assistant",
-            description="SheenCity AI 教学平台的常驻助理",
-            instruction=settings.prompt("assistant", DEFAULT_PROMPT),
-            model_name=self._model,
-            model_provider="openai",
-            model_api_base=settings.ark_base_url,
-            model_api_key=settings.ark_api_key,
-            model_extra_config={"extra_body": {"thinking": {"type": "disabled"}}},
-            tools=[get_my_points],
-        )
-        self._runner = Runner(agent=agent, app_name=APP_NAME, session_service=self._sessions)
+        tools = {"get_my_points": get_my_points}
+
+        def build(persona: Persona) -> Runner:
+            prompt = settings.prompt(persona.prompt, persona.default_prompt)
+
+            def instruction(context) -> str:
+                """每轮现算：提示词 + 当前场合。身份和位置取自后台，不取自对话。"""
+                if int(context.user_id) == WARM_UP.user_id:
+                    return prompt
+                ctx = spaces.context(int(context.user_id), context.state.get("workspace_id"))
+                return f"{prompt}\n\n{situation(spaces, ctx)}"
+
+            agent = Agent(
+                name=f"scity_{persona.key}",
+                description=persona.title,
+                instruction=instruction,
+                model_name=self._model,
+                model_provider="openai",
+                model_api_base=settings.ark_base_url,
+                model_api_key=settings.ark_api_key,
+                model_extra_config={"extra_body": {"thinking": {"type": "disabled"}}},
+                tools=[tools[name] for name in persona.tools],
+            )
+            return Runner(agent=agent, app_name=APP_NAME, session_service=self._sessions)
+
+        self._runners = {key: build(persona) for key, persona in PERSONAS.items()}
 
     @staticmethod
     def _session_id(ctx: Context) -> str:
@@ -75,13 +94,14 @@ class Assistant:
 
     async def start_turn(self, ctx: Context, text: str) -> Turn:
         await self._ensure_session(ctx)
-        events = self._runner.run_async(
+        persona = persona_for(ctx)
+        events = self._runners[persona.key].run_async(
             user_id=str(ctx.user_id),
             session_id=self._session_id(ctx),
             new_message=types.Content(role="user", parts=[types.Part(text=text)]),
             run_config=RunConfig(streaming_mode=StreamingMode.SSE),
         )
-        return Turn(events, self._model)
+        return Turn(events, self._model, persona)
 
     async def warm_up(self) -> list[ModelCall]:
         """启动时先跑一轮，让框架加载完，学生的第一句话不用多等约 8 秒。用完即删会话。"""

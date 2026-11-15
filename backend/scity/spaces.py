@@ -75,6 +75,10 @@ class SpaceService:
                 db.flush()
             return user.id
 
+    def set_display_name(self, user_id: int, name: str) -> None:
+        with self._sessions.begin() as db:
+            db.get(User, user_id).display_name = name
+
     def create_space(self, kind: str, name: str, parent_id: int | None = None) -> int:
         if kind not in LEARNING_SPACES + BUSINESS_SPACES:
             raise ValueError(f"不认识的空间类型：{kind}")

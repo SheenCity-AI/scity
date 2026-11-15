@@ -124,6 +124,11 @@ class WalletService:
             db.add(LedgerEntry(wallet_id=wallet.id, kind="grant", delta=points, user_id=user_id,
                                space_id=space_id, ref=ref))
 
+    def has_grant(self, user_id: int, ref: str) -> bool:
+        with self._sessions() as db:
+            return db.scalar(select(LedgerEntry.id).where(LedgerEntry.kind == "grant", LedgerEntry.user_id == user_id,
+                                                          LedgerEntry.ref == ref).limit(1)) is not None
+
     def view(self, ctx: Context) -> WalletView:
         with self._sessions() as db:
             return _view(_sources(db, ctx, utcnow()))

@@ -2,11 +2,12 @@ import asyncio
 import json
 import time
 
+from collections import defaultdict
 from types import SimpleNamespace
 
 from scity.demo import DEMO_BALANCE, DEMO_SUBSIDY, DemoEnrollment
-from scity.feishu_bot import (ANSWER_ELEMENT, CAP_REACHED, META_ELEMENT, Bot, CardStream, FeishuError, build_card,
-                              extract_text, format_charge)
+from scity.feishu_bot import (ANSWER_ELEMENT, CAP_REACHED, META_ELEMENT, NOT_ENROLLED, OUT_OF_POINTS, Bot, CardStream,
+                              FeishuError, build_card, extract_text, format_charge)
 from scity.settings import DEFAULT_COSTS
 from scity.wallet import ChargeResult, ModelCall, WalletView
 
@@ -97,10 +98,10 @@ class FakeTurn:
         raise RuntimeError("模型中断")
 
 
-def make_bot(sessions, spaces, wallets, turn, cap=None):
+def make_bot(sessions, spaces, wallets, turn, cap=None, demo_enroll=True):
     bot = Bot.__new__(Bot)
     bot._client = None
-    bot._settings = SimpleNamespace(spend_cap_yuan=cap)
+    bot._settings = SimpleNamespace(spend_cap_yuan=cap, demo_enroll=demo_enroll)
     bot._spaces, bot._wallet = spaces, wallets
     bot._demo = DemoEnrollment(sessions, spaces, wallets)
     bot._locks = {}
@@ -181,6 +182,17 @@ async def test_spend_cap_blocks_model_calls_but_not_balance_queries(sessions, sp
     assert FakeCard.instances == []
     await bot._handle(message("点数"))
     assert len(bot.replies) == 2 and "学校补贴" in bot.replies[1]
+
+
+async def test_without_demo_enrollment_only_the_roster_counts(sessions, spaces, wallets):
+    bot = make_bot(sessions, spaces, wallets, None, demo_enroll=False)
+    bot._locks = defaultdict(asyncio.Lock)
+    await bot._handle(message("你好", open_id="ou_stranger"))
+    assert bot.replies == [NOT_ENROLLED]
+    student = spaces.ensure_user("ou_student")
+    spaces.add_member(student, spaces.create_space("class", "一班"), "student")
+    await bot._handle(message("你好", open_id="ou_student"))
+    assert bot.replies[-1] == OUT_OF_POINTS
 
 
 def test_unknown_model_cost_is_estimated_high():

@@ -1,6 +1,7 @@
 """运行配置：从环境变量和 SCITY_ENV_FILES 指定的文件读取，代码里不放任何密钥。
 
 SCITY_SPEND_CAP_YUAN：累计模型费用上限（元），到了就不再调用模型；不设就不限制。
+SCITY_DEMO_ENROLL：设为 0 时，新来的人不再自动进演示班级和领演示点数，只认后台开课的名单。
 """
 from __future__ import annotations
 
@@ -53,6 +54,7 @@ class Settings:
     pricing: dict = field(default_factory=dict)
     model_costs: dict = field(default_factory=dict)
     spend_cap_yuan: float | None = None
+    demo_enroll: bool = True
 
     def prompt(self, name: str, default: str) -> str:
         path = self.private_dir / "prompts" / f"{name}.md"
@@ -82,4 +84,5 @@ def load_settings() -> Settings:
         pricing=private_json("pricing.json", DEMO_PRICING),
         model_costs=private_json("model_costs.json", DEFAULT_COSTS),
         spend_cap_yuan=float(cap) if cap else None,
+        demo_enroll=env.get("SCITY_DEMO_ENROLL", "1") != "0",
     )

@@ -40,6 +40,8 @@ UPDATE_INTERVAL = 0.3
 MENTION = re.compile(r"@_user_\d+")
 SEEN_LIMIT = 2000
 CAP_REACHED = "平台的演示额度已经用完，暂时不能回答。"
+NOT_ENROLLED = "你还没有加入任何课程，开课后就可以使用了。"
+OUT_OF_POINTS = "你的点数用完了，充值或等学校发放后可以继续使用。"
 
 
 def build_card() -> str:
@@ -200,7 +202,9 @@ class Bot:
         if not text:
             return
         # 机器人私聊就是主聊天，不属于任何工作区
-        ctx = self._spaces.context(self._demo.enroll(data.event.sender.sender_id.open_id), None)
+        open_id = data.event.sender.sender_id.open_id
+        user_id = self._demo.enroll(open_id) if self._settings.demo_enroll else self._spaces.ensure_user(open_id)
+        ctx = self._spaces.context(user_id, None)
         if text in ("/点数", "点数"):
             await self._reply_text(message_id, format_wallet(self._wallet.view(ctx)))
             return
@@ -217,7 +221,8 @@ class Bot:
                 await self._reply_text(message_id, CAP_REACHED)
                 return
             if self._wallet.view(ctx).available <= 0:
-                await self._reply_text(message_id, "你的点数用完了，充值或等学校发放后可以继续使用。")
+                enrolled = self._spaces.memberships(ctx.user_id)
+                await self._reply_text(message_id, OUT_OF_POINTS if enrolled else NOT_ENROLLED)
                 return
             await self._answer(ctx, message_id, text)
 

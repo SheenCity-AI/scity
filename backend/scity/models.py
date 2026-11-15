@@ -1,4 +1,4 @@
-"""数据表：人、空间、成员关系、工作区、钱包、点数流水和模型用量。
+"""数据表：人、空间、成员关系、工作区、钱包、点数流水、模型用量，以及课题引擎的一局课、组、填报和事件。
 
 人不属于任何空间；班级、学校、孵化器、OPC、项目组都是空间，可以有上下级。
 一个课题或一个项目是空间下的一个工作区；不在任何工作区里就是主聊天。
@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import (BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint,
+from sqlalchemy import (JSON, BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint,
                         create_engine, text)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
@@ -149,6 +149,72 @@ class UsageRecord(Base):
     cost_micro: Mapped[int] = mapped_column(BigInteger, default=0)
     ref: Mapped[str] = mapped_column(String(64), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+
+class Game(Base):
+    """一局课：属于一个课题工作区。stage 为空表示还没开始或已经走完（看 finished_at）。"""
+
+    __tablename__ = "game"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workspace_id: Mapped[int] = mapped_column(ForeignKey("workspace.id"), index=True)
+    course_ref: Mapped[str] = mapped_column(String(100))
+    seed: Mapped[str] = mapped_column(String(64), default="")
+    stage: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    stage_opened_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    stage_deadline: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)  # 每次有变化加 1，各台电脑靠它知道要不要刷新
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class Team(Base):
+    __tablename__ = "team"
+    __table_args__ = (UniqueConstraint("game_id", "name"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("game.id"), index=True)
+    name: Mapped[str] = mapped_column(String(40))
+    company: Mapped[str] = mapped_column(String(64), default="")
+    npc: Mapped[bool] = mapped_column(default=False)  # 系统控制的对手
+
+
+class TeamMember(Base):
+    __tablename__ = "team_member"
+    __table_args__ = (UniqueConstraint("game_id", "user_id"),)  # 一个人在一局里只在一个组
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("game.id"), index=True)
+    team_id: Mapped[int] = mapped_column(ForeignKey("team.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
+    post: Mapped[str] = mapped_column(String(20), default="")
+
+
+class Decision(Base):
+    """一个组在一个阶段的填报。只增不改，同一阶段以最后一次为准。user_id 为空表示截止时系统代填的默认选项。"""
+
+    __tablename__ = "decision"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("game.id"), index=True)
+    team_id: Mapped[int] = mapped_column(ForeignKey("team.id"), index=True)
+    stage: Mapped[str] = mapped_column(String(40))
+    payload: Mapped[dict] = mapped_column(JSON)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class GameEvent(Base):
+    """老师的操作和系统算出的结果，只增不改。
+
+    kind：open 开启阶段 / extend 延长 / record 老师录入 / result 关闭阶段时课程插件算出的结果。
+    """
+
+    __tablename__ = "game_event"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("game.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))
+    stage: Mapped[str] = mapped_column(String(40))
+    payload: Mapped[dict] = mapped_column(JSON)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 def make_session_factory(database_url: str, create: bool = False) -> sessionmaker:

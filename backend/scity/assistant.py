@@ -103,6 +103,18 @@ class Assistant:
         )
         return Turn(events, self._model, persona)
 
+    async def history(self, ctx: Context) -> list[dict]:
+        """这个场合里已有的对话，给网页重新打开时显示。只有文字，不含工具调用。"""
+        session = await self._sessions.get_session(app_name=APP_NAME, user_id=str(ctx.user_id),
+                                                   session_id=self._session_id(ctx))
+        messages = []
+        for event in (session.events if session else []):
+            parts = (event.content.parts if event.content else None) or []
+            text = "".join(p.text for p in parts if p.text and not p.thought)
+            if text and not event.partial:
+                messages.append({"role": "user" if event.author == "user" else "assistant", "text": text})
+        return messages
+
     async def warm_up(self) -> list[ModelCall]:
         """启动时先跑一轮，让框架加载完，学生的第一句话不用多等约 8 秒。用完即删会话。"""
         turn = await self.start_turn(WARM_UP, "你好")

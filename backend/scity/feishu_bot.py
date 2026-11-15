@@ -26,6 +26,7 @@ from lark_oapi.api.cardkit.v1 import (
 from lark_oapi.api.im.v1 import ReplyMessageRequest, ReplyMessageRequestBody
 
 from .assistant import Assistant
+from .chat import CAP_REACHED, NOT_ENROLLED, OUT_OF_POINTS, refusal
 from .demo import DemoEnrollment
 from .models import make_session_factory
 from .settings import Settings, load_settings
@@ -39,9 +40,6 @@ META_ELEMENT = "meta"
 UPDATE_INTERVAL = 0.3
 MENTION = re.compile(r"@_user_\d+")
 SEEN_LIMIT = 2000
-CAP_REACHED = "平台的演示额度已经用完，暂时不能回答。"
-NOT_ENROLLED = "你还没有加入任何课程，开课后就可以使用了。"
-OUT_OF_POINTS = "你的点数用完了，充值或等学校发放后可以继续使用。"
 
 
 def build_card() -> str:
@@ -213,16 +211,12 @@ class Bot:
                 await self._assistant.reset(ctx)
                 await self._reply_text(message_id, "好的，我们重新开始。")
                 return
-            try:
-                self._wallet.check_spend_cap(self._settings.spend_cap_yuan)
-            except SpendCapReached:
-                log.error("spend_cap_reached message=%s spent=%.2f cap=%s", message_id,
-                          self._wallet.spent_yuan(), self._settings.spend_cap_yuan)
-                await self._reply_text(message_id, CAP_REACHED)
-                return
-            if self._wallet.view(ctx).available <= 0:
-                enrolled = self._spaces.memberships(ctx.user_id)
-                await self._reply_text(message_id, OUT_OF_POINTS if enrolled else NOT_ENROLLED)
+            reason = refusal(self._spaces, self._wallet, ctx, self._settings.spend_cap_yuan)
+            if reason:
+                if reason == CAP_REACHED:
+                    log.error("spend_cap_reached message=%s spent=%.2f cap=%s", message_id,
+                              self._wallet.spent_yuan(), self._settings.spend_cap_yuan)
+                await self._reply_text(message_id, reason)
                 return
             await self._answer(ctx, message_id, text)
 

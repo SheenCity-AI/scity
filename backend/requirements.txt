@@ -4,5 +4,8 @@ aiosqlite
 alembic
 psycopg[binary]
 asyncpg
+fastapi
+uvicorn
+httpx
 pytest
 pytest-asyncio

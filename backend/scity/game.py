@@ -104,6 +104,12 @@ class GameService:
         return state
 
     @staticmethod
+    def _required(course, stage: Stage, state: GameState) -> list[str]:
+        """这个阶段要等哪些组提交。默认是全部学生组；课程插件可以用 required_teams 缩小范围。"""
+        custom = getattr(course, "required_teams", None)
+        return custom(stage.key, state) if custom else [t.name for t in state.teams if not t.npc]
+
+    @staticmethod
     def _require_teacher(ctx: Context) -> None:
         if ctx.role != "teacher":
             raise GameError("只有老师可以做这个操作")
@@ -114,7 +120,7 @@ class GameService:
         state = self._state(db, game)
         teams = {t.name: t for t in db.scalars(select(Team).where(Team.game_id == game.id))}
         if stage.form:
-            waiting = [t.name for t in state.teams if not t.npc and t.name not in state.decisions.get(stage.key, {})]
+            waiting = [t for t in self._required(course, stage, state) if t not in state.decisions.get(stage.key, {})]
             timed_out = game.stage_deadline is not None and now >= game.stage_deadline
             if stage.ends == "timer" and not timed_out:
                 raise GameError("这个阶段在倒计时结束前不能提前结束")
@@ -234,5 +240,5 @@ class GameService:
             }
             if ctx.role == "teacher" and current and current.form:
                 done = state.decisions.get(current.key, {})
-                view["submitted"] = {t.name: t.name in done for t in state.teams if not t.npc}
+                view["submitted"] = {t: t in done for t in self._required(course, current, state)}
             return view

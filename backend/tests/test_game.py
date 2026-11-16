@@ -198,3 +198,23 @@ def test_one_person_one_team_and_new_game_archives_the_old_one(room):
         room.games.advance(room.game, room.ctx(room.teacher))
     with pytest.raises(GameError, match="不在这一局的任何组"):
         room.games.submit(again, room.ctx(room.c), {"price": 100})
+
+
+def test_course_can_narrow_which_teams_a_stage_waits_for(room, monkeypatch):
+    teacher = room.ctx(room.teacher)
+    monkeypatch.setattr(ToyCourse, "required_teams", lambda self, stage, state: ["第2组"], raising=False)
+    room.games.advance(room.game, teacher)
+    room.games.advance(room.game, teacher)
+    assert room.games.view(room.game, teacher)["submitted"] == {"第2组": False}
+    room.games.submit(room.game, room.ctx(room.c), {"price": 120})
+    room.games.advance(room.game, teacher)  # 第 1 组没交也能提前结束
+    assert room.games.state(room.game).stage == "reveal"
+
+
+def test_courses_are_loaded_from_the_private_directory(tmp_path):
+    from scity.course import load_courses
+    folder = tmp_path / "courses" / "demo"
+    folder.mkdir(parents=True)
+    (folder / "plugin.py").write_text("class C:\n    ref = 'demo@1'\n    stages = []\nCOURSE = C()\n", encoding="utf-8")
+    assert list(load_courses(tmp_path)) == ["demo@1"]
+    assert load_courses(tmp_path / "nothing") == {}

@@ -8,10 +8,25 @@
   validate_record(stage, payload, state) 校验老师录入的内容（如现场举牌结果）
   close(stage, state)                   关闭阶段时算出结果，返回 None 表示这个阶段没有结果
   view(state, team, role)               这个身份此刻能看到的课程内容；保密的东西不要放进学生的视图
+可选：
+  required_teams(stage, state)          这个阶段要等哪些组提交（默认全部学生组）
 """
 from __future__ import annotations
 
+import importlib.util
 from dataclasses import dataclass, field
+from pathlib import Path
+
+
+def load_courses(private_dir: Path) -> dict:
+    """装载私有目录 courses/<名称>/plugin.py 里的课程插件（每个文件给出一个 COURSE）。"""
+    courses = {}
+    for path in sorted(Path(private_dir).glob("courses/*/plugin.py")):
+        spec = importlib.util.spec_from_file_location(f"scity_course_{path.parent.name}", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        courses[module.COURSE.ref] = module.COURSE
+    return courses
 
 
 @dataclass(frozen=True)

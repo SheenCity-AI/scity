@@ -24,6 +24,7 @@ from pydantic import BaseModel, field_validator
 
 from .chat import refusal
 from .demo import DemoEnrollment
+from .game import GameError, GameService
 from .personas import persona_for
 from .spaces import Context, NotMember, SpaceService, WorkspaceArchived
 from .wallet import WalletService, WalletView
@@ -116,6 +117,14 @@ class ResetBody(BaseModel):
     workspace_id: int | None = None
 
 
+class PayloadBody(BaseModel):
+    payload: dict
+
+
+class ExtendBody(BaseModel):
+    minutes: int
+
+
 def _wallet(view: WalletView) -> dict:
     return {"subsidy": view.subsidy, "balance": view.balance}
 
@@ -124,7 +133,8 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def create_app(settings, sessions, spaces: SpaceService, wallets: WalletService, assistant, login) -> FastAPI:
+def create_app(settings, sessions, spaces: SpaceService, wallets: WalletService, assistant, login,
+               games: GameService | None = None) -> FastAPI:
     if not settings.web_secret:
         raise RuntimeError("没有配置 SCITY_WEB_SECRET，网页后台不能启动")
     app = FastAPI(title="SCity", docs_url=None, redoc_url=None, openapi_url=None)
@@ -219,6 +229,49 @@ def create_app(settings, sessions, spaces: SpaceService, wallets: WalletService,
         return StreamingResponse(stream(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
+    # ---------- 课题引擎：一局课的状态、填报和老师操作 ----------
+
+    def game_of(user_id: int, workspace_id: int) -> tuple[Context, int | None]:
+        ctx = context(user_id, workspace_id)
+        return ctx, games.active(workspace_id) if games else None
+
+    def act(user_id: int, workspace_id: int, action) -> dict:
+        ctx, game_id = game_of(user_id, workspace_id)
+        if game_id is None:
+            raise HTTPException(404, "这个课题还没有开局")
+        try:
+            action(game_id, ctx)
+        except GameError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {"ok": True, "version": games.version(game_id)}
+
+    @app.get("/api/workspaces/{workspace_id}/game")
+    def game_state(workspace_id: int, since: int | None = None, user_id: int = Depends(current_user)) -> dict:
+        """各台电脑每隔几秒问一次；带上 since 时，没变化只回一个很小的应答。"""
+        ctx, game_id = game_of(user_id, workspace_id)
+        if game_id is None:
+            return {"game": None}
+        version = games.version(game_id)
+        if since is not None and since == version:
+            return {"game": game_id, "version": version, "changed": False}
+        return games.view(game_id, ctx)
+
+    @app.post("/api/workspaces/{workspace_id}/game/submit")
+    def game_submit(workspace_id: int, body: PayloadBody, user_id: int = Depends(current_user)) -> dict:
+        return act(user_id, workspace_id, lambda game_id, ctx: games.submit(game_id, ctx, body.payload))
+
+    @app.post("/api/workspaces/{workspace_id}/game/advance")
+    def game_advance(workspace_id: int, user_id: int = Depends(current_user)) -> dict:
+        return act(user_id, workspace_id, lambda game_id, ctx: games.advance(game_id, ctx))
+
+    @app.post("/api/workspaces/{workspace_id}/game/extend")
+    def game_extend(workspace_id: int, body: ExtendBody, user_id: int = Depends(current_user)) -> dict:
+        return act(user_id, workspace_id, lambda game_id, ctx: games.extend(game_id, ctx, body.minutes))
+
+    @app.post("/api/workspaces/{workspace_id}/game/record")
+    def game_record(workspace_id: int, body: PayloadBody, user_id: int = Depends(current_user)) -> dict:
+        return act(user_id, workspace_id, lambda game_id, ctx: games.record(game_id, ctx, body.payload))
+
     return app
 
 
@@ -226,6 +279,7 @@ def main() -> None:
     import uvicorn
 
     from .assistant import Assistant
+    from .course import load_courses
     from .models import make_session_factory
     from .settings import load_settings
 
@@ -238,8 +292,11 @@ def main() -> None:
     sessions = make_session_factory(settings.database_url)
     spaces = SpaceService(sessions)
     wallets = WalletService(sessions, settings.pricing, settings.model_costs)
+    courses = load_courses(settings.private_dir)
+    log.info("courses=%s", sorted(courses))
     app = create_app(settings, sessions, spaces, wallets, Assistant(settings, spaces, wallets),
-                     FeishuLogin(settings.feishu_app_id, settings.feishu_app_secret))
+                     FeishuLogin(settings.feishu_app_id, settings.feishu_app_secret),
+                     games=GameService(sessions, courses))
     uvicorn.run(app, host="127.0.0.1", port=int(os.environ.get("SCITY_WEB_PORT", "8000")), access_log=False,
                 log_level="warning")
 

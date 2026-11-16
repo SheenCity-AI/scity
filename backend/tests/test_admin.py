@@ -79,3 +79,21 @@ def test_command_line_opens_course_and_lists(tmp_path, monkeypatch, capsys, data
     main(["users"])
     out = capsys.readouterr().out
     assert "林晓" in out and "student" in out and "ou_s1" not in out  # 账号只显示末 4 位
+
+
+def test_open_game_groups_enrolled_students_only(sessions, spaces, wallets):
+    from scity.admin import open_game
+    from scity.game import GameService
+    from tests.test_game import ToyCourse
+    games = GameService(sessions, {"toy@1": ToyCourse()})
+    result = open_course(sessions, spaces, wallets, dict(SPEC, course={"name": "玩具课", "ref": "toy@1"}))
+    s1, s2, teacher = (spaces.ensure_user(x) for x in ("ou_s1", "ou_s2", "ou_t"))
+    spec = {"workspace": result.workspace_id, "seed": "t", "teams": [
+        {"name": "第1组", "members": [s1]}, {"name": "第2组", "members": [s2]}, {"name": "对手", "npc": True}]}
+    game = open_game(sessions, games, spec)
+    assert games.active(result.workspace_id) == game
+    assert [t.name for t in games.state(game).teams] == ["第1组", "第2组", "对手"]
+    with pytest.raises(ValueError, match="不是这个班的学生"):
+        open_game(sessions, games, dict(spec, teams=[{"name": "第1组", "members": [teacher]}]))
+    with pytest.raises(ValueError, match="至少要有一个学生组"):
+        open_game(sessions, games, dict(spec, teams=[{"name": "对手", "npc": True}]))

@@ -2,6 +2,7 @@
 
 用法：
   python -m scity.admin open-course 名单.json   建班级和课题工作区，设定老师和学生，发放补贴；可重复执行来加人
+  python -m scity.admin open-game 开局.json     在一个课题工作区里开一局：分组，加系统对手；原来进行中的局归档
   python -m scity.admin spaces                  空间、工作区和人数
   python -m scity.admin users                   人和所在空间
 
@@ -10,6 +11,11 @@
    "teachers": [{"open_id": "ou_…", "name": "姓名"}], "students": [{"user_id": 3}],
    "subsidy": {"points": 3000, "expires": "2027-01-31"}}
 人用飞书 open_id 或平台用户编号指定；subsidy 可以不写。补贴由学校出，到期日当天（北京时间）结束后作废。
+
+开局格式：
+  {"workspace": 1, "seed": "试玩-第1场",
+   "teams": [{"name": "第1组", "members": [3]}, {"name": "稳基置业", "npc": true}]}
+课程包取工作区登记的版本；members 是平台用户编号，必须是这个班的学生。
 """
 from __future__ import annotations
 
@@ -21,6 +27,8 @@ from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import sessionmaker
 
+from .course import load_courses
+from .game import GameService
 from .models import Membership, Space, User, Workspace, make_session_factory
 from .settings import load_settings
 from .spaces import SpaceService
@@ -94,6 +102,23 @@ def open_course(sessions: sessionmaker, spaces: SpaceService, wallets: WalletSer
     return CourseOpened(school, klass, workspace, len(teachers), len(students), granted)
 
 
+def open_game(sessions: sessionmaker, games: GameService, spec: dict) -> int:
+    with sessions() as db:
+        workspace = db.get(Workspace, spec.get("workspace"))
+        if workspace is None:
+            raise ValueError("没有这个工作区")
+        students = set(db.scalars(select(Membership.user_id).where(
+            Membership.space_id == workspace.space_id, Membership.active, Membership.role == "student")))
+    teams = spec.get("teams") or []
+    if not any(not t.get("npc") for t in teams):
+        raise ValueError("至少要有一个学生组")
+    for team in teams:
+        strangers = [u for u in team.get("members", []) if u not in students]
+        if strangers:
+            raise ValueError(f"{team.get('name')} 里有人不是这个班的学生：{strangers}")
+    return games.create(workspace.id, workspace.course_ref, spec.get("seed", ""), teams)
+
+
 def _print_spaces(sessions: sessionmaker) -> None:
     with sessions() as db:
         spaces = db.scalars(select(Space).order_by(Space.id)).all()
@@ -127,6 +152,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m scity.admin", description="SCity 官方后台（命令行简易版）")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("open-course", help="按名单开课").add_argument("roster", help="名单 JSON 文件")
+    commands.add_parser("open-game", help="在课题工作区里开一局").add_argument("spec", help="开局 JSON 文件")
     commands.add_parser("spaces", help="空间、工作区和人数")
     commands.add_parser("users", help="人和所在空间")
     args = parser.parse_args(argv)
@@ -139,6 +165,11 @@ def main(argv: list[str] | None = None) -> None:
                              WalletService(sessions, settings.pricing, settings.model_costs), spec)
         print(f"已开课：班级 [{result.class_id}]，工作区 [{result.workspace_id}]；"
               f"老师 {result.teachers} 人，学生 {result.students} 人，新发补贴 {result.granted} 人")
+    elif args.command == "open-game":
+        with open(args.spec, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        game_id = open_game(sessions, GameService(sessions, load_courses(settings.private_dir)), spec)
+        print(f"已开局 [{game_id}]：{len(spec['teams'])} 家公司，等老师点“开始”")
     elif args.command == "spaces":
         _print_spaces(sessions)
     else:

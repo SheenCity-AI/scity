@@ -218,3 +218,11 @@ def test_courses_are_loaded_from_the_private_directory(tmp_path):
     (folder / "plugin.py").write_text("class C:\n    ref = 'demo@1'\n    stages = []\nCOURSE = C()\n", encoding="utf-8")
     assert list(load_courses(tmp_path)) == ["demo@1"]
     assert load_courses(tmp_path / "nothing") == {}
+
+
+def test_course_knows_how_long_the_current_stage_has_been_open(room):
+    teacher = room.ctx(room.teacher)
+    room.games.advance(room.game, teacher)
+    room.games.advance(room.game, teacher)
+    room.clock.forward(7)
+    assert room.games.state(room.game).stage_minutes == 7

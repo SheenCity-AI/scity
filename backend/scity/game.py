@@ -91,7 +91,8 @@ class GameService:
         members: dict[int, list[int]] = {t.id: [] for t in teams}
         for m in db.scalars(select(TeamMember).where(TeamMember.game_id == game.id).order_by(TeamMember.id)):
             members[m.team_id].append(m.user_id)
-        state = GameState(seed=game.seed, stage=game.stage,
+        elapsed = (self._now() - game.stage_opened_at).total_seconds() / 60 if game.stage_opened_at else 0.0
+        state = GameState(seed=game.seed, stage=game.stage, stage_minutes=elapsed,
                           teams=[TeamInfo(t.name, t.company, t.npc, tuple(members[t.id])) for t in teams])
         for d in db.scalars(select(Decision).where(Decision.game_id == game.id).order_by(Decision.id)):
             state.decisions.setdefault(d.stage, {})[names[d.team_id]] = d.payload

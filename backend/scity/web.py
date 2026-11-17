@@ -242,6 +242,8 @@ def create_app(settings, sessions, spaces: SpaceService, wallets: WalletService,
         try:
             action(game_id, ctx)
         except GameError as exc:
+            # 记下被规则拒绝的原因，方便事后查同学卡在哪（只记原因，不记填报内容）
+            log.info("game rejected user=%s workspace=%s game=%s reason=%s", user_id, workspace_id, game_id, exc)
             raise HTTPException(409, str(exc)) from exc
         return {"ok": True, "version": games.version(game_id)}
 
@@ -294,9 +296,9 @@ def main() -> None:
     wallets = WalletService(sessions, settings.pricing, settings.model_costs)
     courses = load_courses(settings.private_dir)
     log.info("courses=%s", sorted(courses))
-    app = create_app(settings, sessions, spaces, wallets, Assistant(settings, spaces, wallets),
-                     FeishuLogin(settings.feishu_app_id, settings.feishu_app_secret),
-                     games=GameService(sessions, courses))
+    games = GameService(sessions, courses)
+    app = create_app(settings, sessions, spaces, wallets, Assistant(settings, spaces, wallets, briefing=games.brief),
+                     FeishuLogin(settings.feishu_app_id, settings.feishu_app_secret), games=games)
     uvicorn.run(app, host="127.0.0.1", port=int(os.environ.get("SCITY_WEB_PORT", "8000")), access_log=False,
                 log_level="warning")
 

@@ -45,6 +45,15 @@ def persona_for(ctx: Context) -> Persona:
     return ASSISTANT  # 主聊天；经营空间的项目助手第二期再做
 
 
+def compose(prompt: str, situation_text: str, live: str = "") -> str:
+    """一轮对话的完整指令：岗位提示词 ＋ 当前场合 ＋（有的话）课题现场。"""
+    parts = [prompt, situation_text]
+    if live.strip():
+        parts.append("【课题现场】（由平台后台提供，是这位用户此刻在课题页面上能看到的内容；用户问“现在该做什么”“这个选项是什么意思”"
+                     "“我们现在怎么样了”时，据此回答。不要替用户做决定，不要猜测页面上没有的数字。）\n" + live.strip())
+    return "\n\n".join(parts)
+
+
 def situation(spaces: SpaceService, ctx: Context) -> str:
     """接在提示词后面的“当前场合”：是谁、在哪、什么身份、手上有哪些任务（只有名称）。"""
     tasks = spaces.workspaces(ctx.user_id)

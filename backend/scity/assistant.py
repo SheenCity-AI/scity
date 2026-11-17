@@ -4,7 +4,7 @@
 """
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 
 from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.runners import Runner
@@ -13,7 +13,7 @@ from google.adk.tools import ToolContext
 from google.genai import types
 from veadk import Agent
 
-from .personas import PERSONAS, Persona, persona_for, situation
+from .personas import PERSONAS, Persona, compose, persona_for, situation
 from .settings import Settings
 from .spaces import Context, SpaceService
 from .wallet import ModelCall, WalletService
@@ -44,7 +44,9 @@ class Turn:
 
 
 class Assistant:
-    def __init__(self, settings: Settings, spaces: SpaceService, wallet: WalletService):
+    def __init__(self, settings: Settings, spaces: SpaceService, wallet: WalletService,
+                 briefing: Callable[[Context], str] | None = None):
+        """briefing：可选，返回这个人所在工作区此刻的现场摘要（如一局课走到哪一步），接在“当前场合”后面。"""
         self._model = settings.default_model
         self._sessions = DatabaseSessionService(settings.session_database_url)
 
@@ -64,7 +66,7 @@ class Assistant:
                 if int(context.user_id) == WARM_UP.user_id:
                     return prompt
                 ctx = spaces.context(int(context.user_id), context.state.get("workspace_id"))
-                return f"{prompt}\n\n{situation(spaces, ctx)}"
+                return compose(prompt, situation(spaces, ctx), briefing(ctx) if briefing else "")
 
             agent = Agent(
                 name=f"scity_{persona.key}",

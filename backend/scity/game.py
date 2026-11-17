@@ -214,6 +214,24 @@ class GameService:
 
     # ---------- 查看 ----------
 
+    def brief(self, ctx: Context) -> str:
+        """这个人所在工作区里正在进行的一局，现在是什么情况。给助手看，让它知道课上到哪了、这个人看到了什么。
+        没有进行中的一局，或者课程没有提供摘要，返回空字符串。"""
+        if ctx.workspace_id is None:
+            return ""
+        game_id = self.active(ctx.workspace_id)
+        if game_id is None:
+            return ""
+        with self._sessions() as db:
+            game, ctx = self._load(db, game_id, ctx)
+            course = self._courses.get(game.course_ref)
+            make = getattr(course, "brief", None)
+            if make is None:
+                return ""
+            state = self._state(db, game)
+            team = next((t.name for t in state.teams if ctx.user_id in t.members), None)
+            return make(state, team, ctx.role) or ""
+
     def state(self, game_id: int) -> GameState:
         with self._sessions() as db:
             return self._state(db, db.get(Game, game_id))

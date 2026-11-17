@@ -69,3 +69,13 @@ def test_outsiders_and_anonymous_are_kept_out(site, spaces):
     stranger.cookies.set("scity_session", sign_session(outsider, SECRET))
     assert stranger.get(site.url).status_code == 403
     assert stranger.post(f"{site.url}/submit", json={"payload": {"price": 300}}).status_code == 403
+
+
+def test_rejections_are_logged_with_their_reason_but_not_the_payload(site, caplog):
+    site.as_teacher.post(f"{site.url}/advance")
+    site.as_teacher.post(f"{site.url}/advance")
+    with caplog.at_level("INFO", logger="scity.web"):
+        site.as_a.post(f"{site.url}/submit", json={"payload": {"price": 1}})
+    line = next(r.getMessage() for r in caplog.records if "game rejected" in r.getMessage())
+    assert "reason=报价不能低于 100" in line and "price" not in line
+

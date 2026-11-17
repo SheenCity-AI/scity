@@ -226,3 +226,16 @@ def test_course_knows_how_long_the_current_stage_has_been_open(room):
     room.games.advance(room.game, teacher)
     room.clock.forward(7)
     assert room.games.state(room.game).stage_minutes == 7
+
+
+def test_brief_for_the_assistant_is_role_aware_and_optional(room, spaces, monkeypatch):
+    student, teacher = room.ctx(room.a), room.ctx(room.teacher)
+    assert room.games.brief(student) == ""  # 课程没有提供摘要
+    assert room.games.brief(spaces.context(room.a, None)) == ""  # 主聊天没有课题现场
+    monkeypatch.setattr(ToyCourse, "brief", lambda self, state, team, role: f"阶段 {state.stage}，{role}，{team}", raising=False)
+    room.games.advance(room.game, teacher)
+    assert room.games.brief(student) == "阶段 intro，student，第1组"
+    assert room.games.brief(teacher) == "阶段 intro，teacher，None"
+    with pytest.raises(NotMember):
+        room.games.brief(spaces.context(spaces.ensure_user("ou_x"), room.workspace))
+

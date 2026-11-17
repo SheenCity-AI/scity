@@ -54,3 +54,12 @@ def test_task_list_has_names_from_own_spaces_only(spaces, campus):
     assert "主聊天" in main and "课题「沙盘」" in main
     nobody = spaces.ensure_user("ou_new")
     assert "没有进行中的课题或项目" in situation(spaces, spaces.context(nobody, None))
+
+
+def test_live_class_brief_is_appended_only_when_there_is_one():
+    from scity.personas import compose
+    assert compose("提示词", "场合") == "提示词\n\n场合"
+    assert compose("提示词", "场合", "  ") == "提示词\n\n场合"
+    full = compose("提示词", "场合", "现在是暗拍阶段")
+    assert full.startswith("提示词\n\n场合\n\n【课题现场】") and full.endswith("现在是暗拍阶段") and "不要替用户做决定" in full
+

@@ -10,6 +10,7 @@
   view(state, team, role)               这个身份此刻能看到的课程内容；保密的东西不要放进学生的视图
 可选：
   required_teams(stage, state)          这个阶段要等哪些组提交（默认全部学生组）
+  brief(state, team, role)              给工作区里的助手看的现场摘要（文字）；同样只放这个身份能看到的内容
 """
 from __future__ import annotations
 

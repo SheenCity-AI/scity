@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 import json
 from dataclasses import dataclass
 from datetime import datetime
@@ -29,6 +30,7 @@ from sqlalchemy.orm import sessionmaker
 
 from .course import load_courses
 from .game import GameService
+from .knowledge import KnowledgeMap
 from .models import Membership, Space, User, Workspace, make_session_factory
 from .settings import load_settings
 from .spaces import SpaceService
@@ -155,6 +157,8 @@ def main(argv: list[str] | None = None) -> None:
     commands.add_parser("open-game", help="在课题工作区里开一局").add_argument("spec", help="开局 JSON 文件")
     commands.add_parser("spaces", help="空间、工作区和人数")
     commands.add_parser("users", help="人和所在空间")
+    commands.add_parser("import-knowledge", help="导入知识图谱总图（专业目录、知识领域、知识点、相近专业）").add_argument("folder", help="放表格的目录")
+    commands.add_parser("knowledge", help="总图里现在有多少专业、知识领域和知识点")
     args = parser.parse_args(argv)
     settings = load_settings()
     sessions = make_session_factory(settings.database_url)
@@ -170,6 +174,16 @@ def main(argv: list[str] | None = None) -> None:
             spec = json.load(fh)
         game_id = open_game(sessions, GameService(sessions, load_courses(settings.private_dir)), spec)
         print(f"已开局 [{game_id}]：{len(spec['teams'])} 家公司，等老师点“开始”")
+    elif args.command == "import-knowledge":
+        report = KnowledgeMap(sessions).import_dir(Path(args.folder))
+        print("已导入：专业 {majors}，知识领域 {domains}，知识点 {points}，关键词 {keywords}，知识点关联 {links}，"
+              "知识点挂专业 {point_majors}，相近专业 {neighbors} 对".format(**report))
+        for line in report["warnings"][:50]:
+            print("  注意：" + line)
+        if len(report["warnings"]) > 50:
+            print(f"  …另有 {len(report['warnings']) - 50} 条")
+    elif args.command == "knowledge":
+        print(KnowledgeMap(sessions).stats())
     elif args.command == "spaces":
         _print_spaces(sessions)
     else:

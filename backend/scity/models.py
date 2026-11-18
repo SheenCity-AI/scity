@@ -1,4 +1,5 @@
-"""数据表：人、空间、成员关系、工作区、钱包、点数流水、模型用量，以及课题引擎的一局课、组、填报和事件。
+"""数据表：人、空间、成员关系、工作区、钱包、点数流水、模型用量，课题引擎的一局课、组、填报和事件，
+以及知识图谱的总图（专业目录、知识领域、知识点）。
 
 人不属于任何空间；班级、学校、孵化器、OPC、项目组都是空间，可以有上下级。
 一个课题或一个项目是空间下的一个工作区；不在任何工作区里就是主聊天。
@@ -215,6 +216,95 @@ class GameEvent(Base):
     payload: Mapped[dict] = mapped_column(JSON)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+# ---------- 知识图谱的总图：专业目录、知识领域、知识点 ----------
+# 每个学生的知识图是这张总图上被点亮的部分。专业目录用教育部的本科和职业教育两套；知识点只存一份，可以同时挂多个专业。
+
+MAJOR_LEVELS = ("本科", "高职专科", "职业本科")
+
+
+class Major(Base):
+    """教育部专业目录里的一个专业。本科按“门类 → 专业类 → 专业”，高职按“专业大类 → 专业类 → 专业”，这里都记成三层。"""
+
+    __tablename__ = "major"
+    __table_args__ = (UniqueConstraint("level", "code"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    level: Mapped[str] = mapped_column(String(10))            # 本科 / 高职专科 / 职业本科
+    code: Mapped[str] = mapped_column(String(12), index=True)
+    name: Mapped[str] = mapped_column(String(60))
+    category_code: Mapped[str] = mapped_column(String(8), default="")
+    category: Mapped[str] = mapped_column(String(40), default="")   # 学科门类 / 专业大类
+    class_code: Mapped[str] = mapped_column(String(8), default="")
+    class_name: Mapped[str] = mapped_column(String(60), default="")  # 专业类；个别门类下没有
+    cluster: Mapped[str] = mapped_column(String(40), default="")     # 我们划的专业群，相近专业按它来；没划的为空
+    source: Mapped[str] = mapped_column(String(60), default="")      # 目录版本
+
+
+class MajorNeighbor(Base):
+    """相近专业：一行一对。以学生本人的专业为中心分三圈时，本专业和相近专业算第一圈。"""
+
+    __tablename__ = "major_neighbor"
+    __table_args__ = (UniqueConstraint("major_id", "neighbor_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    major_id: Mapped[int] = mapped_column(ForeignKey("major.id"), index=True)
+    neighbor_id: Mapped[int] = mapped_column(ForeignKey("major.id"))
+    basis: Mapped[str] = mapped_column(String(40), default="")
+
+
+class KnowledgeDomain(Base):
+    """知识领域（如“融资拿地”），上面还有一层大领域（如“城市开发与更新”，代码 KF）。"""
+
+    __tablename__ = "knowledge_domain"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(12), unique=True)       # KF.2
+    name: Mapped[str] = mapped_column(String(40))
+    group_code: Mapped[str] = mapped_column(String(6), index=True)   # KF
+    group_name: Mapped[str] = mapped_column(String(40))
+    scope: Mapped[str] = mapped_column(String(40), default="")
+
+
+class KnowledgePoint(Base):
+    """知识点：图上的一个泡泡，粗细约等于一张知识卡。名词不单独成泡泡，记在关键词里。"""
+
+    __tablename__ = "knowledge_point"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(20), unique=True)       # K-KF-004
+    name: Mapped[str] = mapped_column(String(60))
+    domain_id: Mapped[int] = mapped_column(ForeignKey("knowledge_domain.id"), index=True)
+    summary: Mapped[str] = mapped_column(String(300), default="")
+    source: Mapped[str] = mapped_column(String(60), default="")      # 来自哪个课程包或通识包
+    status: Mapped[str] = mapped_column(String(40), default="")      # 核对状态
+
+
+class KnowledgeKeyword(Base):
+    """知识点的关键词：聊到“容积率”，认作在聊“规划条件指标”。"""
+
+    __tablename__ = "knowledge_keyword"
+    __table_args__ = (UniqueConstraint("point_id", "word"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    point_id: Mapped[int] = mapped_column(ForeignKey("knowledge_point.id"), index=True)
+    word: Mapped[str] = mapped_column(String(40), index=True)
+
+
+class KnowledgeLink(Base):
+    """相关的知识点：聚焦一个知识点时，显示和它相关联的知识点。"""
+
+    __tablename__ = "knowledge_link"
+    __table_args__ = (UniqueConstraint("point_id", "related_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    point_id: Mapped[int] = mapped_column(ForeignKey("knowledge_point.id"), index=True)
+    related_id: Mapped[int] = mapped_column(ForeignKey("knowledge_point.id"))
+
+
+class KnowledgePointMajor(Base):
+    """知识点属于哪些专业（本科和高职都可以，一个知识点可以挂多个）。"""
+
+    __tablename__ = "knowledge_point_major"
+    __table_args__ = (UniqueConstraint("point_id", "major_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    point_id: Mapped[int] = mapped_column(ForeignKey("knowledge_point.id"), index=True)
+    major_id: Mapped[int] = mapped_column(ForeignKey("major.id"), index=True)
 
 
 def make_session_factory(database_url: str, create: bool = False) -> sessionmaker:

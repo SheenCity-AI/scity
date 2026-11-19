@@ -22,12 +22,12 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 
-from .chat import refusal
+from .chat import CAP_REACHED, refusal
 from .demo import DemoEnrollment
 from .game import GameError, GameService
 from .personas import persona_for
 from .spaces import Context, NotMember, SpaceService, WorkspaceArchived
-from .wallet import WalletService, WalletView
+from .wallet import SpendCapReached, WalletService, WalletView
 
 log = logging.getLogger("scity.web")
 
@@ -125,6 +125,21 @@ class ExtendBody(BaseModel):
     minutes: int
 
 
+MAX_TALK = 300
+
+
+class TalkBody(BaseModel):
+    text: str
+
+    @field_validator("text")
+    @classmethod
+    def not_blank_or_long(cls, value: str) -> str:
+        value = value.strip()
+        if not value or len(value) > MAX_TALK:
+            raise ValueError(f"要说的话不能为空，也不能超过 {MAX_TALK} 字")
+        return value
+
+
 def _wallet(view: WalletView) -> dict:
     return {"subsidy": view.subsidy, "balance": view.balance}
 
@@ -134,12 +149,13 @@ def _sse(event: str, data: dict) -> str:
 
 
 def create_app(settings, sessions, spaces: SpaceService, wallets: WalletService, assistant, login,
-               games: GameService | None = None) -> FastAPI:
+               games: GameService | None = None, roles=None) -> FastAPI:
     if not settings.web_secret:
         raise RuntimeError("没有配置 SCITY_WEB_SECRET，网页后台不能启动")
     app = FastAPI(title="SCity", docs_url=None, redoc_url=None, openapi_url=None)
     demo = DemoEnrollment(sessions, spaces, wallets)
     locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+    talk_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)  # 一局里同一时间只让一句话在问：次数才数得准
 
     def current_user(request: Request) -> int:
         user_id = verify_session(request.cookies.get(COOKIE, ""), settings.web_secret)
@@ -274,6 +290,39 @@ def create_app(settings, sessions, spaces: SpaceService, wallets: WalletService,
     def game_record(workspace_id: int, body: PayloadBody, user_id: int = Depends(current_user)) -> dict:
         return act(user_id, workspace_id, lambda game_id, ctx: games.record(game_id, ctx, body.payload))
 
+    @app.post("/api/workspaces/{workspace_id}/game/talk")
+    async def game_talk(workspace_id: int, body: TalkBody, user_id: int = Depends(current_user)) -> dict:
+        """学生和课里的 AI 角色说一句话。每组次数有限；结果仍由课程规则算，这里只记下一问一答。"""
+        ctx, game_id = game_of(user_id, workspace_id)
+        if game_id is None or roles is None:
+            raise HTTPException(404, "这个课题现在没有可以对话的角色")
+        try:
+            wallets.check_spend_cap(settings.spend_cap_yuan)
+        except SpendCapReached as exc:
+            raise HTTPException(402, CAP_REACHED) from exc
+        ref = f"talk-{uuid4().hex}"
+        async with talk_locks[game_id]:
+            started = time.monotonic()
+            try:
+                seat = games.talk_seat(game_id, ctx)
+            except GameError as exc:
+                log.info("game rejected user=%s workspace=%s game=%s reason=%s", user_id, workspace_id, game_id, exc)
+                raise HTTPException(409, str(exc)) from exc
+            try:
+                answer, calls = await roles.reply(seat.prompt, seat.history, body.text)
+            except Exception as exc:
+                log.exception("角色回答失败 ref=%s", ref)
+                raise HTTPException(502, f"{seat.name}没有听清，请再说一遍（这一次不算次数）") from exc
+            # 课里的对话属于上课，点数不够也不拦（超出的部分记为缺口，事后调这门课的预算）
+            result = wallets.charge_turn(ctx, calls, ref, purpose="role")
+            try:
+                left = games.talk_save(game_id, ctx, seat.stage, body.text, answer)
+            except GameError as exc:
+                raise HTTPException(409, str(exc)) from exc
+        log.info("talked ref=%s user=%s workspace=%s game=%s stage=%s left=%s points=%s seconds=%.1f",
+                 ref, user_id, workspace_id, game_id, seat.stage, left, result.points, time.monotonic() - started)
+        return {"ok": True, "name": seat.name, "answer": answer, "left": left, "version": games.version(game_id)}
+
     return app
 
 
@@ -283,6 +332,7 @@ def main() -> None:
     from .assistant import Assistant
     from .course import load_courses
     from .models import make_session_factory
+    from .roles import RolePlayer
     from .settings import load_settings
 
     handler = logging.StreamHandler()
@@ -298,7 +348,8 @@ def main() -> None:
     log.info("courses=%s", sorted(courses))
     games = GameService(sessions, courses)
     app = create_app(settings, sessions, spaces, wallets, Assistant(settings, spaces, wallets, briefing=games.brief),
-                     FeishuLogin(settings.feishu_app_id, settings.feishu_app_secret), games=games)
+                     FeishuLogin(settings.feishu_app_id, settings.feishu_app_secret), games=games,
+                     roles=RolePlayer(settings))
     uvicorn.run(app, host="127.0.0.1", port=int(os.environ.get("SCITY_WEB_PORT", "8000")), access_log=False,
                 log_level="warning")
 

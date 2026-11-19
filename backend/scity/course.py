@@ -11,6 +11,9 @@
 可选：
   required_teams(stage, state)          这个阶段要等哪些组提交（默认全部学生组）
   brief(state, team, role)              给工作区里的助手看的现场摘要（文字）；同样只放这个身份能看到的内容
+  role(stage, state, team)              这个阶段里学生可以对话的 AI 角色（如居民代表）；没有就返回 None。返回
+                                        {"name": 称呼, "prompt": 给模型的设定, "turns": 每组最多问几次}。
+                                        对话只是让学生听到角色的反应，结果仍由 close 按规则算；设定里不要放学生不该知道的内容
 """
 from __future__ import annotations
 
@@ -61,6 +64,7 @@ class GameState:
     results: dict[str, dict] = field(default_factory=dict)               # 阶段 → 关闭时算出的结果
     records: dict[str, list[dict]] = field(default_factory=dict)         # 阶段 → 老师的录入，按时间顺序
     defaulted: set[tuple[str, str]] = field(default_factory=set)         # (阶段, 组)：这一步学生没交，现在生效的是截止时系统代填的
+    talks: dict[str, dict[str, list[dict]]] = field(default_factory=dict)  # 阶段 → 组 → 和 AI 角色的问答 [{"q", "a"}]，按时间顺序
     _history: dict[tuple[str, str], list[dict]] = field(default_factory=dict)
 
     def team(self, name: str) -> TeamInfo:

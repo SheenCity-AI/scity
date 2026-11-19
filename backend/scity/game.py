@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
@@ -18,6 +19,18 @@ from .spaces import Context, resolve_context
 
 class GameError(Exception):
     """这一步现在不能做，message 是给用户看的原因。"""
+
+
+@dataclass(frozen=True)
+class Seat:
+    """一个组此刻和课里的一个 AI 角色对话的现场：角色的设定、已经谈过的、还能问几次。"""
+
+    stage: str
+    team: str
+    name: str
+    prompt: str
+    history: tuple[tuple[str, str], ...]
+    left: int
 
 
 def _iso(moment: datetime | None) -> str | None:
@@ -103,6 +116,9 @@ class GameService:
                 state.results[e.stage] = e.payload
             elif e.kind == "record":
                 state.records.setdefault(e.stage, []).append(e.payload)
+            elif e.kind == "talk" and e.payload.get("team") in names.values():
+                state.talks.setdefault(e.stage, {}).setdefault(e.payload["team"], []).append(
+                    {"q": e.payload["q"], "a": e.payload["a"]})
         return state
 
     @staticmethod
@@ -212,6 +228,49 @@ class GameService:
                 raise GameError(str(exc)) from exc
             db.add(Decision(game_id=game.id, team_id=team.id, stage=stage.key, payload=payload, user_id=ctx.user_id))
             game.version += 1
+
+    # ---------- 和课里的 AI 角色对话 ----------
+
+    def _seat(self, db: Session, game: Game, ctx: Context, course) -> Seat:
+        member = db.scalar(select(TeamMember).where(TeamMember.game_id == game.id, TeamMember.user_id == ctx.user_id))
+        if member is None:
+            raise GameError("你不在这一局的任何组里")
+        team = db.get(Team, member.team_id).name
+        state = self._state(db, game)
+        make = getattr(course, "role", None)
+        spec = make(game.stage, state, team) if make and game.stage else None
+        if not spec:
+            raise GameError("这个阶段没有可以对话的角色")
+        if game.stage_deadline is not None and self._now() >= game.stage_deadline:
+            raise GameError("这个阶段已经截止")
+        asked = state.talks.get(game.stage, {}).get(team, [])
+        return Seat(game.stage, team, spec["name"], spec["prompt"], tuple((t["q"], t["a"]) for t in asked),
+                    max(0, int(spec["turns"]) - len(asked)))
+
+    def talk_seat(self, game_id: int, ctx: Context) -> Seat:
+        """开口之前：取出角色设定和已谈过的内容。次数用完、阶段截止、不在组里都会拒绝。"""
+        with self._sessions() as db:
+            game, ctx = self._load(db, game_id, ctx)
+            if game.archived_at is not None or game.finished_at is not None:
+                raise GameError("这一局已经结束")
+            seat = self._seat(db, game, ctx, self._courses[game.course_ref])
+        if seat.left <= 0:
+            raise GameError(f"和{seat.name}的对话次数已经用完")
+        return seat
+
+    def talk_save(self, game_id: int, ctx: Context, stage: str, question: str, answer: str) -> int:
+        """记下一问一答，返回这个组还能问几次。模型回答期间阶段已经换了，就不记。"""
+        with self._sessions.begin() as db:
+            game, ctx, course, _ = self._mutable(db, game_id, ctx)
+            if game.stage != stage:
+                raise GameError("这个阶段已经结束")
+            seat = self._seat(db, game, ctx, course)
+            if seat.left <= 0:
+                raise GameError(f"和{seat.name}的对话次数已经用完")
+            db.add(GameEvent(game_id=game.id, kind="talk", stage=stage, user_id=ctx.user_id,
+                             payload={"team": seat.team, "q": question, "a": answer}))
+            game.version += 1
+            return seat.left - 1
 
     # ---------- 查看 ----------
 

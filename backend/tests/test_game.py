@@ -33,6 +33,12 @@ class ToyCourse:
         bids = {t: d["price"] for t, d in state.decisions.get("bid", {}).items()}
         return {"winner": max(bids, key=bids.get) if bids else None, "bids": bids}
 
+    def role(self, stage, state, team):
+        """暗标阶段可以问拍卖师，每组两次。"""
+        if stage != "bid":
+            return None
+        return {"name": "拍卖师", "prompt": f"你是拍卖师，在和{team}说话。只讲规则，不透露别人的报价。", "turns": 2}
+
     def view(self, state, team, role):
         result = state.results.get("bid")
         if role == "teacher":
@@ -252,3 +258,43 @@ def test_brief_for_the_assistant_is_role_aware_and_optional(room, spaces, monkey
     with pytest.raises(NotMember):
         room.games.brief(spaces.context(spaces.ensure_user("ou_x"), room.workspace))
 
+
+
+def test_talking_to_a_course_role_is_limited_per_team_and_stage(room):
+    teacher, a, b, c = (room.ctx(u) for u in (room.teacher, room.a, room.b, room.c))
+    room.games.advance(room.game, teacher)
+    with pytest.raises(GameError, match="没有可以对话的角色"):
+        room.games.talk_seat(room.game, a)  # 开场阶段没有角色
+    room.games.advance(room.game, teacher)
+    with pytest.raises(GameError, match="不在这一局的任何组里"):
+        room.games.talk_seat(room.game, teacher)
+    seat = room.games.talk_seat(room.game, a)
+    assert (seat.stage, seat.team, seat.name, seat.left, seat.history) == ("bid", "第1组", "拍卖师", 2, ())
+    assert "第1组" in seat.prompt
+    before = room.games.version(room.game)
+    assert room.games.talk_save(room.game, a, "bid", "最低报多少？", "不能低于 100。") == 1
+    assert room.games.version(room.game) == before + 1  # 同组的另一台电脑会刷新出这段对话
+    seat = room.games.talk_seat(room.game, b)  # 同组的另一个人：接着同一段对话，次数一起算
+    assert seat.left == 1 and seat.history == (("最低报多少？", "不能低于 100。"),)
+    assert room.games.talk_save(room.game, b, "bid", "能改吗？", "截止前可以改。") == 0
+    with pytest.raises(GameError, match="对话次数已经用完"):
+        room.games.talk_seat(room.game, a)
+    with pytest.raises(GameError, match="对话次数已经用完"):
+        room.games.talk_save(room.game, a, "bid", "再问一次", "……")
+    assert room.games.talk_seat(room.game, c).left == 2  # 别的组不受影响
+    state = room.games.state(room.game)
+    assert state.talks == {"bid": {"第1组": [{"q": "最低报多少？", "a": "不能低于 100。"}, {"q": "能改吗？", "a": "截止前可以改。"}]}}
+
+
+def test_talk_is_refused_after_the_deadline_or_when_the_stage_moved_on(room):
+    teacher, c = room.ctx(room.teacher), room.ctx(room.c)
+    room.games.advance(room.game, teacher)
+    room.games.advance(room.game, teacher)
+    seat = room.games.talk_seat(room.game, c)
+    room.clock.forward(10)
+    with pytest.raises(GameError, match="已经截止"):
+        room.games.talk_seat(room.game, c)
+    room.games.advance(room.game, teacher)
+    with pytest.raises(GameError, match="这个阶段已经结束"):
+        room.games.talk_save(room.game, c, seat.stage, "还来得及吗？", "……")  # 模型回答期间老师点了下一步：不记
+    assert room.games.state(room.game).talks == {}

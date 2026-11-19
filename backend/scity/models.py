@@ -205,7 +205,8 @@ class Decision(Base):
 class GameEvent(Base):
     """老师的操作和系统算出的结果，只增不改。
 
-    kind：open 开启阶段 / extend 延长 / record 老师录入 / result 关闭阶段时课程插件算出的结果。
+    kind：open 开启阶段 / extend 延长 / record 老师录入 / result 关闭阶段时课程插件算出的结果 /
+    talk 一个组和课里的 AI 角色的一问一答（payload 里有 team、q、a）。
     """
 
     __tablename__ = "game_event"

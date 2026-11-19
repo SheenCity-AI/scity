@@ -60,6 +60,7 @@ class GameState:
     decisions: dict[str, dict[str, dict]] = field(default_factory=dict)  # 阶段 → 组 → 最后一次填报
     results: dict[str, dict] = field(default_factory=dict)               # 阶段 → 关闭时算出的结果
     records: dict[str, list[dict]] = field(default_factory=dict)         # 阶段 → 老师的录入，按时间顺序
+    defaulted: set[tuple[str, str]] = field(default_factory=set)         # (阶段, 组)：这一步学生没交，现在生效的是截止时系统代填的
     _history: dict[tuple[str, str], list[dict]] = field(default_factory=dict)
 
     def team(self, name: str) -> TeamInfo:

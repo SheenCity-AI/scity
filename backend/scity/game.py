@@ -97,6 +97,7 @@ class GameService:
         for d in db.scalars(select(Decision).where(Decision.game_id == game.id).order_by(Decision.id)):
             state.decisions.setdefault(d.stage, {})[names[d.team_id]] = d.payload
             state._history.setdefault((d.stage, names[d.team_id]), []).append(d.payload)
+            (state.defaulted.add if d.user_id is None else state.defaulted.discard)((d.stage, names[d.team_id]))
         for e in db.scalars(select(GameEvent).where(GameEvent.game_id == game.id).order_by(GameEvent.id)):
             if e.kind == "result":
                 state.results[e.stage] = e.payload

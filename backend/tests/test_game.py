@@ -144,7 +144,20 @@ def test_after_deadline_missing_teams_get_defaults_and_stage_can_close(room):
     room.games.advance(room.game, teacher)
     room.clock.forward(10)
     room.games.advance(room.game, teacher)
-    assert room.games.state(room.game).results["bid"]["bids"] == {"对手": 150}  # 学生组没有默认报价，视为放弃
+    state = room.games.state(room.game)
+    assert state.results["bid"]["bids"] == {"对手": 150}  # 学生组没有默认报价，视为放弃
+    assert state.defaulted == {("bid", "对手")}  # 课程插件看得出哪些是系统代填的（比如打分时区分“没交”）
+
+
+def test_a_real_submission_is_not_marked_as_defaulted(room):
+    teacher = room.ctx(room.teacher)
+    room.games.advance(room.game, teacher)
+    room.games.advance(room.game, teacher)
+    room.games.submit(room.game, room.ctx(room.a), {"price": 300})
+    room.clock.forward(10)
+    room.games.advance(room.game, teacher)
+    state = room.games.state(room.game)
+    assert ("bid", "第1组") not in state.defaulted and state.decisions["bid"]["第1组"] == {"price": 300}
 
 
 def test_strict_timer_stage_cannot_be_ended_early_and_extension_is_capped(room):

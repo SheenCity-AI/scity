@@ -11,6 +11,9 @@
 可选：
   required_teams(stage, state)          这个阶段要等哪些组提交（默认全部学生组）
   brief(state, team, role)              给工作区里的助手看的现场摘要（文字）；同样只放这个身份能看到的内容
+  knowledge(state, team)                这个组到现在凭老师的评分点亮了哪些知识点：{"scores": {知识点编号: 分}, "touched": [知识点编号]}。
+                                        scores 是“展开”的知识点和所在板块的分（10 分制），touched 是只“点到”的。老师每次保存评分后，
+                                        平台把它记到这个组每个成员的知识图上
   role(stage, state, team)              这个阶段里学生可以对话的 AI 角色（如居民代表）；没有就返回 None。返回
                                         {"name": 称呼, "prompt": 给模型的设定, "turns": 每组最多问几次}。
                                         对话只是让学生听到角色的反应，结果仍由 close 按规则算；设定里不要放学生不该知道的内容

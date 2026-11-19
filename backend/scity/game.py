@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from .course import GameState, Stage, TeamInfo
-from .models import Decision, Game, GameEvent, Team, TeamMember, utcnow
+from .models import Decision, Game, GameEvent, KnowledgeMark, Team, TeamMember, utcnow
 from .spaces import Context, resolve_context
 
 
@@ -205,7 +205,32 @@ class GameService:
             except ValueError as exc:
                 raise GameError(str(exc)) from exc
             db.add(GameEvent(game_id=game.id, kind="record", stage=game.stage, payload=payload, user_id=ctx.user_id))
+            self._light_up(db, game, course, payload)
             game.version += 1
+
+    def _light_up(self, db: Session, game: Game, course, payload: dict) -> None:
+        """老师确认了分数：把分数落到这些组此刻每个成员的知识点上（以后调了分组，已记的不变）。"""
+        make = getattr(course, "knowledge", None)
+        graded = payload.get("scores") if isinstance(payload, dict) else None
+        if make is None or not isinstance(graded, dict):
+            return
+        db.flush()
+        state, now = self._state(db, game), self._now()
+        for team in state.teams:
+            if team.name not in graded or not team.members:
+                continue
+            lit = make(state, team.name)
+            rows = {**{code: None for code in lit.get("touched", [])}, **lit.get("scores", {})}
+            for user_id in team.members:
+                have = {m.point_code: m for m in db.scalars(select(KnowledgeMark).where(
+                    KnowledgeMark.user_id == user_id, KnowledgeMark.game_id == game.id))}
+                for code, score in rows.items():
+                    mark = have.get(code)
+                    if mark is None:
+                        db.add(KnowledgeMark(user_id=user_id, point_code=code, game_id=game.id, course_ref=game.course_ref,
+                                             score=score, touches=1, created_at=now, updated_at=now))
+                    elif mark.score != score:
+                        mark.score, mark.updated_at = score, now
 
     # ---------- 学生的操作 ----------
 

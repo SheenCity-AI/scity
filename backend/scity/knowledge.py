@@ -17,8 +17,21 @@ from pathlib import Path
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import sessionmaker
 
-from .models import (MAJOR_LEVELS, KnowledgeDomain, KnowledgeKeyword, KnowledgeLink, KnowledgePoint, KnowledgePointMajor,
-                     Major, MajorNeighbor)
+from .models import (MAJOR_LEVELS, KnowledgeDomain, KnowledgeKeyword, KnowledgeLink, KnowledgeMark, KnowledgePoint,
+                     KnowledgePointMajor, Major, MajorNeighbor)
+
+TIERS = ("点到", "了解", "理解", "会用")  # 实线泡泡的四档，从小到大
+UNDERSTAND, MASTER = 6.0, 8.5              # 10 分制：6 分以上“理解”，8.5 分以上“会用”（暂定，以后按真实成绩调）
+KNOW_TOUCHES, KNOW_MINUTES = 3, 10.0       # 接触 3 次以上或累计 10 分钟以上，从“点到”长到“了解”（暂定）
+
+
+def tier(score: float | None, touches: int, minutes: float) -> int:
+    """一个知识点现在是第几档（TIERS 的下标）。理解、会用只凭老师确认过的分；其余看接触多少。"""
+    if score is not None and score >= MASTER:
+        return 3
+    if score is not None and score >= UNDERSTAND:
+        return 2
+    return 1 if touches >= KNOW_TOUCHES or minutes >= KNOW_MINUTES else 0
 
 
 def _rows(path: Path) -> list[dict]:
@@ -196,6 +209,38 @@ class KnowledgeMap:
             words = db.scalars(select(KnowledgeKeyword.word).where(KnowledgeKeyword.point_id == p.id).order_by(KnowledgeKeyword.id)).all()
             return {"code": p.code, "name": p.name, "summary": p.summary, "domain": d.name, "domain_code": d.code, "group": d.group_name,
                     "group_code": d.group_code, "keywords": list(words), "related": list(related), "source": p.source}
+
+    def mine(self, user_id: int) -> dict:
+        """一个学生的实线泡泡：学过的课程包里、老师评过分的知识点。同一个知识点在几门课里都学过时，
+        分数取最高的，次数和时长相加。返回的 links 只含两头都已点亮的关联。"""
+        with self._sessions() as db:
+            merged: dict[str, dict] = {}
+            for m in db.scalars(select(KnowledgeMark).where(KnowledgeMark.user_id == user_id).order_by(KnowledgeMark.id)):
+                one = merged.setdefault(m.point_code, {"score": None, "touches": 0, "minutes": 0.0, "courses": [], "updated": m.updated_at})
+                if m.score is not None and (one["score"] is None or m.score > one["score"]):
+                    one["score"] = m.score
+                one["touches"] += m.touches
+                one["minutes"] += m.minutes
+                one["updated"] = max(one["updated"], m.updated_at)
+                if m.course_ref not in one["courses"]:
+                    one["courses"].append(m.course_ref)
+            known = {p.code: (p, d) for p, d in db.execute(select(KnowledgePoint, KnowledgeDomain).join(
+                KnowledgeDomain, KnowledgeDomain.id == KnowledgePoint.domain_id).where(KnowledgePoint.code.in_(merged or [""])))}
+            ids = {p.id: code for code, (p, _) in known.items()}
+            links = sorted({tuple(sorted((ids[a], ids[b]))) for a, b in db.execute(select(KnowledgeLink.point_id, KnowledgeLink.related_id).where(
+                KnowledgeLink.point_id.in_(ids or [0]), KnowledgeLink.related_id.in_(ids or [0])))})
+        points = []
+        for code, one in merged.items():
+            p, d = known.get(code, (None, None))
+            level = tier(one["score"], one["touches"], one["minutes"])
+            points.append({"code": code, "name": p.name if p else code, "summary": p.summary if p else "", "in_map": p is not None,
+                           "domain": d.name if d else "", "domain_code": d.code if d else "", "group": d.group_name if d else "",
+                           "group_code": d.group_code if d else "", "tier": TIERS[level], "level": level, "score": one["score"],
+                           "touches": one["touches"], "minutes": round(one["minutes"], 1), "courses": one["courses"],
+                           "updated": one["updated"].strftime("%Y-%m-%d")})
+        points.sort(key=lambda x: (x["group_code"] or "~", x["domain_code"], x["code"]))
+        return {"points": points, "links": [list(pair) for pair in links],
+                "counts": {name: sum(1 for x in points if x["level"] == i) for i, name in enumerate(TIERS)}}
 
     def match(self, word: str) -> list[str]:
         """一个词对应哪些知识点（按关键词或知识点名称）。"""

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import (JSON, BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint,
+from sqlalchemy import (JSON, BigInteger, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, String, UniqueConstraint,
                         create_engine, text)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
@@ -306,6 +306,27 @@ class KnowledgePointMajor(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     point_id: Mapped[int] = mapped_column(ForeignKey("knowledge_point.id"), index=True)
     major_id: Mapped[int] = mapped_column(ForeignKey("major.id"), index=True)
+
+
+class KnowledgeMark(Base):
+    """一个人在一局课里点亮的一个知识点（实线泡泡的依据）。老师确认分数时写入，按当时的小组成员记到每个人名下。
+
+    只存知识点编号、分数、次数、时长和日期，不存对话原文。score 是老师给所在板块打的分（10 分制），
+    只有课程包里标为“展开”的知识点有；“点到”的为空。
+    """
+
+    __tablename__ = "knowledge_mark"
+    __table_args__ = (UniqueConstraint("user_id", "point_code", "game_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
+    point_code: Mapped[str] = mapped_column(String(20), index=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("game.id"), index=True)
+    course_ref: Mapped[str] = mapped_column(String(100))  # 课程包及版本
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    touches: Mapped[int] = mapped_column(Integer, default=1)   # 接触次数
+    minutes: Mapped[float] = mapped_column(Float, default=0.0)  # 学习时间
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 def make_session_factory(database_url: str, create: bool = False) -> sessionmaker:

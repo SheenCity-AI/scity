@@ -25,6 +25,7 @@ from pydantic import BaseModel, field_validator
 from .chat import CAP_REACHED, refusal
 from .demo import DemoEnrollment
 from .game import GameError, GameService
+from .knowledge import KnowledgeMap
 from .personas import persona_for
 from .spaces import Context, NotMember, SpaceService, WorkspaceArchived
 from .wallet import SpendCapReached, WalletService, WalletView
@@ -155,6 +156,7 @@ def create_app(settings, sessions, spaces: SpaceService, wallets: WalletService,
     app = FastAPI(title="SCity", docs_url=None, redoc_url=None, openapi_url=None)
     demo = DemoEnrollment(sessions, spaces, wallets)
     locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+    knowledge = KnowledgeMap(sessions)
     talk_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)  # 一局里同一时间只让一句话在问：次数才数得准
 
     def current_user(request: Request) -> int:
@@ -244,6 +246,11 @@ def create_app(settings, sessions, spaces: SpaceService, wallets: WalletService,
 
         return StreamingResponse(stream(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+    @app.get("/api/knowledge/me")
+    def my_knowledge(user_id: int = Depends(current_user)) -> dict:
+        """自己的知识图（实线泡泡）：只能看自己的。"""
+        return knowledge.mine(user_id)
 
     # ---------- 课题引擎：一局课的状态、填报和老师操作 ----------
 

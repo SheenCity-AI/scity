@@ -352,6 +352,9 @@ class ContentCourse:
         done = self.grades(state)
         return [c for b in self.blocks if done.get(b["id"], {}).get(team) is not None for c in b["cards"] if not self.points[c]["deep"]]
 
+    def knowledge(self, state, team: str) -> dict:
+        return {"scores": self.card_scores(state, team), "touched": self.touched_cards(state, team)}
+
     def validate_record(self, stage, payload, state):
         lesson = self.gate(stage)
         if lesson is None or "scores" not in (payload or {}):

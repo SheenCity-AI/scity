@@ -159,7 +159,22 @@ def main(argv: list[str] | None = None) -> None:
     commands.add_parser("users", help="人和所在空间")
     commands.add_parser("import-knowledge", help="导入知识图谱总图（专业目录、知识领域、知识点、相近专业）").add_argument("folder", help="放表格的目录")
     commands.add_parser("knowledge", help="总图里现在有多少专业、知识领域和知识点")
+    commands.add_parser("check-course", help="检查一个内容型课程包的文件夹能不能上平台").add_argument("folder", help="课程包文件夹")
     args = parser.parse_args(argv)
+    if args.command == "check-course":  # 只读文件，不连数据库
+        from .content_course import ContentCourse, CourseFormatError, problems
+        found = problems(Path(args.folder))
+        try:
+            course = ContentCourse(Path(args.folder))
+            tasks = sum(1 for n in course.nodes.values() if n.fields)
+            print(f"{course.name}（{course.ref}）：{len({s.lesson for s in course.stages})} 次课，{len(course.stages)} 个阶段，"
+                  f"{tasks} 个阶段要交东西，{len(course.blocks)} 个评价板块，{len(course.points)} 个知识点")
+        except CourseFormatError:
+            pass
+        for line in found:
+            print("  要改：" + line)
+        print("平台这一关通过。内容对不对、合不合规，还要人看。" if not found else f"还有 {len(found)} 处要改。")
+        raise SystemExit(1 if found else 0)
     settings = load_settings()
     sessions = make_session_factory(settings.database_url)
     if args.command == "open-course":

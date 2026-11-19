@@ -18,18 +18,41 @@
 from __future__ import annotations
 
 import importlib.util
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
 
+log = logging.getLogger("scity.web")
+
+
 def load_courses(private_dir: Path) -> dict:
-    """装载私有目录 courses/<名称>/plugin.py 里的课程插件（每个文件给出一个 COURSE）。"""
+    """装载私有目录 courses/ 下的课程包。两种：
+
+    courses/<名称>/plugin.py   课程插件（写了程序的，文件里给出一个 COURSE）
+    courses/<名称>/课程.md      内容型课程包（不写程序，见 content_course.py）；同一个文件夹里有 plugin.py 时以插件为准
+    内容型课程包写得不对时只跳过这一个并记日志，不影响别的课。
+    """
+    from .content_course import COURSE_FILE, ContentCourse, CourseFormatError
+
     courses = {}
     for path in sorted(Path(private_dir).glob("courses/*/plugin.py")):
         spec = importlib.util.spec_from_file_location(f"scity_course_{path.parent.name}", path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         courses[module.COURSE.ref] = module.COURSE
+    for path in sorted(Path(private_dir).glob(f"courses/*/{COURSE_FILE}")):
+        if (path.parent / "plugin.py").exists():
+            continue
+        try:
+            course = ContentCourse(path.parent)
+        except CourseFormatError as exc:
+            log.error("课程包 %s 没有装上：%s", path.parent.name, exc)
+            continue
+        if course.ref in courses:
+            log.error("课程包 %s 没有装上：编号和版本 %s 已经被别的课程包用了", path.parent.name, course.ref)
+            continue
+        courses[course.ref] = course
     return courses
 
 

@@ -20,7 +20,10 @@ from sqlalchemy.orm import sessionmaker
 from .models import (MAJOR_LEVELS, KnowledgeDomain, KnowledgeKeyword, KnowledgeLink, KnowledgeMark, KnowledgePoint,
                      KnowledgePointMajor, Major, MajorNeighbor, User)
 
-RINGS = {1: "本专业和相近专业", 2: "其他专业"}  # 第三圈“专业目录以外的兴趣”来自聊天，还没有做
+RINGS = {1: "本专业和相近专业", 2: "其他专业", 3: "专业以外的兴趣"}  # 学科主次，从近到远；第三圈来自聊天，真实数据里还没有
+# 演示用的“个人衍生的知识点”（虚线泡泡）：名字、第几圈、聊到几次、多少分钟。真实的要从聊天里识别，还没有做
+DEMO_DERIVED = [("AI 出图提示词", 1, 27, 95), ("参数化建模", 1, 6, 22), ("建筑摄影", 1, 4, 12), ("客户沟通", 2, 12, 40), ("报价常识", 2, 3, 8),
+                ("短视频剪辑", 2, 8, 31), ("辩论技巧", 3, 5, 18), ("吉他入门", 3, 9, 46), ("健身计划", 3, 2, 5)]
 
 TIERS = ("点到", "了解", "理解", "会用")  # 实线泡泡的四档，从小到大
 UNDERSTAND, MASTER = 6.0, 8.5              # 10 分制：6 分以上“理解”，8.5 分以上“会用”（暂定，以后按真实成绩调）
@@ -273,10 +276,43 @@ class KnowledgeMap:
                            "domain": d.name if d else "", "domain_code": d.code if d else "", "group": d.group_name if d else "",
                            "group_code": d.group_code if d else "", "tier": TIERS[level], "level": level, "score": one["score"],
                            "touches": one["touches"], "minutes": round(one["minutes"], 1), "courses": one["courses"],
-                           "updated": one["updated"].strftime("%Y-%m-%d"), "ring": None if major is None else 1 if code in circle else 2})
+                           "updated": one["updated"].strftime("%Y-%m-%d"), "ring": None if major is None else 1 if code in circle else 2,
+                           "derived": False})  # 课程里的知识点是实线；聊天里衍生出来的（虚线）还没有做
         points.sort(key=lambda x: (x["group_code"] or "~", x["domain_code"], x["code"]))
         return {"points": points, "links": [list(pair) for pair in links], "major": major, "rings": RINGS,
                 "counts": {name: sum(1 for x in points if x["level"] == i) for i, name in enumerate(TIERS)}}
+
+    def demo(self) -> dict:
+        """演示用的一张图（不是任何人的真实数据）：一个建筑学本科生学完总图里现有的知识点，再加几个聊天里衍生的。
+        知识点、知识领域、关联和分圈都取自真实的总图，分数和次数是按固定规则编的，每次都一样。"""
+        with self._sessions() as db:
+            major = db.scalar(select(Major).where(Major.level == "本科", Major.name == "建筑学")) or db.scalar(select(Major).order_by(Major.id))
+            rows = db.execute(select(KnowledgePoint, KnowledgeDomain).join(KnowledgeDomain, KnowledgeDomain.id == KnowledgePoint.domain_id)
+                              .order_by(KnowledgePoint.code).limit(90)).all()
+            ids = {p.id: p.code for p, _ in rows}
+            links = sorted({tuple(sorted((ids[a], ids[b]))) for a, b in db.execute(select(KnowledgeLink.point_id, KnowledgeLink.related_id).where(
+                KnowledgeLink.point_id.in_(ids or [0]), KnowledgeLink.related_id.in_(ids or [0])))})
+            near = ({major.id} | set(db.scalars(select(MajorNeighbor.neighbor_id).where(MajorNeighbor.major_id == major.id)))) if major else set()
+            circle = {ids[pid] for pid in db.scalars(select(KnowledgePointMajor.point_id).where(
+                KnowledgePointMajor.point_id.in_(ids or [0]), KnowledgePointMajor.major_id.in_(near or [0])))}
+            major = self._major(major)
+        points = []
+        for i, (p, d) in enumerate(rows):
+            score = None if i % 10 in (3, 6, 9) else [9.5, 7, 8.5, 6, 5, 7.5, 9, 6.5, 8, 4][i % 10]
+            touches, minutes = [1, 1, 2, 4, 1, 9, 1, 3, 1, 12][(i * 7) % 10], [0, 8, 14, 20, 0, 63, 6, 25, 10, 35][(i * 7) % 10]
+            level = tier(score, touches, minutes)
+            points.append({"code": p.code, "name": p.name, "summary": p.summary, "in_map": True, "domain": d.name, "domain_code": d.code,
+                           "group": d.group_name, "group_code": d.group_code, "tier": TIERS[level], "level": level, "score": score,
+                           "touches": touches, "minutes": float(0 if score is None else minutes), "courses": ["演示课程"], "updated": "2026-11-20",
+                           "ring": 1 if p.code in circle else 2, "derived": False})
+        for i, (name, ring, touches, minutes) in enumerate(DEMO_DERIVED, 1):
+            level = tier(None, touches, minutes)
+            points.append({"code": f"DEMO-{i:02d}", "name": name, "summary": "", "in_map": False, "domain": "聊天里聊到的", "domain_code": f"chat.{ring}",
+                           "group": "", "group_code": "", "tier": TIERS[level], "level": level, "score": None, "touches": touches,
+                           "minutes": float(minutes), "courses": [], "updated": "2026-11-20", "ring": ring, "derived": True})
+        solid = [x for x in points if not x["derived"]]
+        return {"points": points, "links": [list(pair) for pair in links], "major": major, "rings": RINGS, "demo": True,
+                "counts": {name: sum(1 for x in solid if x["level"] == i) for i, name in enumerate(TIERS)}}
 
     def match(self, word: str) -> list[str]:
         """一个词对应哪些知识点（按关键词或知识点名称）。"""

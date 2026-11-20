@@ -106,7 +106,7 @@ def test_a_student_registers_a_major_and_the_map_sorts_points_into_rings(session
                 db.add(KnowledgeMark(user_id=user, point_code=code, game_id=game.id, course_ref="toy@1", score=7))
     # K-KF-008 挂在建筑学、城乡规划下面；K-KF-004 只挂在房地产开发与管理下面
     assert {x["code"]: x["ring"] for x in km.mine(a)["points"]} == {"K-KF-004": 2, "K-KF-008": 1}
-    assert km.mine(a)["major"]["level"] == "本科" and km.mine(a)["rings"] == {1: "本专业和相近专业", 2: "其他专业"}
+    assert km.mine(a)["major"]["level"] == "本科" and km.mine(a)["rings"] == {1: "本专业和相近专业", 2: "其他专业", 3: "专业以外的兴趣"}
     assert {x["ring"] for x in km.mine(b)["points"]} == {None} and km.mine(b)["major"] is None  # 没登记专业：先不分圈
     settings = SimpleNamespace(spend_cap_yuan=None, demo_enroll=False, web_secret=SECRET, feishu_app_id="cli_test")
     client = TestClient(create_app(settings, sessions, spaces, wallets, FakeAssistant(), FakeLogin()), base_url="https://testserver")
@@ -121,3 +121,17 @@ def test_a_student_registers_a_major_and_the_map_sorts_points_into_rings(session
     assert done["major"]["name"] == "建筑学" and client.get("/api/knowledge/me").json()["major"]["code"] == "082801"
     assert {x["code"]: x["ring"] for x in client.get("/api/knowledge/me").json()["points"]} == {"K-KF-004": 2, "K-KF-008": 1}
     assert km.major_of(a)["name"] == "城乡规划"  # 只改了自己的
+
+
+def test_demo_map_is_built_from_the_real_catalogue_and_marked_as_demo(sessions, folder):
+    km = KnowledgeMap(sessions)
+    km.import_dir(folder)
+    demo = km.demo()
+    assert demo["demo"] is True and demo["major"]["name"] == "建筑学" and demo == km.demo()  # 每次都一样
+    real = [x for x in demo["points"] if not x["derived"]]
+    assert {x["code"] for x in real} == {"K-KF-004", "K-KF-008", "K-KF-021"} and all(x["in_map"] and x["courses"] == ["演示课程"] for x in real)
+    assert {x["code"]: x["ring"] for x in real}["K-KF-004"] == 2 and {x["code"]: x["ring"] for x in real}["K-KF-008"] == 1  # 分圈按真实的专业对照
+    derived = [x for x in demo["points"] if x["derived"]]
+    assert len(derived) == 9 and {x["ring"] for x in derived} == {1, 2, 3} and all(x["score"] is None and x["code"].startswith("DEMO-") for x in derived)
+    assert sum(demo["counts"].values()) == len(real)  # 四档的数量只数课程里的（实线）
+    assert all(x["derived"] is False for x in km.mine(1)["points"]) and "demo" not in km.mine(1)

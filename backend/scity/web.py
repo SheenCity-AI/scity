@@ -257,6 +257,11 @@ def create_app(settings, sessions, spaces: SpaceService, wallets: WalletService,
         """自己的知识图（实线泡泡）：只能看自己的。"""
         return knowledge.mine(user_id)
 
+    @app.get("/api/knowledge/demo")
+    def demo_knowledge(user_id: int = Depends(current_user)) -> dict:
+        """演示用的知识图：不是任何人的真实数据，页面上会写明。给还没有上过课的人（比如老师）看效果。"""
+        return knowledge.demo()
+
     @app.get("/api/majors")
     def majors(level: str, q: str = "", user_id: int = Depends(current_user)) -> dict:
         """本人选专业时查专业目录（教育部本科、职业教育两套）。"""

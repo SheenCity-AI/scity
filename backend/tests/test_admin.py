@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import func, select
 
 from scity.admin import main, open_course
-from scity.models import LedgerEntry, User
+from scity.models import LedgerEntry, User, Game
 
 SPEC = {
     "school": "甲学校",
@@ -97,3 +97,15 @@ def test_open_game_groups_enrolled_students_only(sessions, spaces, wallets):
         open_game(sessions, games, dict(spec, teams=[{"name": "第1组", "members": [teacher]}]))
     with pytest.raises(ValueError, match="至少要有一个学生组"):
         open_game(sessions, games, dict(spec, teams=[{"name": "对手", "npc": True}]))
+    # 体验班：只开前几次课，不超过 10 人
+    trial = open_game(sessions, games, dict(spec, trial_lessons=1))
+    with sessions() as db:
+        assert db.get(Game, trial).last_lesson == 1 and db.get(Game, game).last_lesson is None
+    with pytest.raises(ValueError, match="trial_lessons 要写体验几次课"):
+        open_game(sessions, games, dict(spec, trial_lessons=0))
+    crowd = [spaces.ensure_user(f"ou_c{i}") for i in range(11)]
+    for user in crowd:
+        spaces.add_member(user, result.class_id, "student")
+    with pytest.raises(ValueError, match="体验班不超过 10 人，现在是 11 人"):
+        open_game(sessions, games, dict(spec, trial_lessons=1, teams=[{"name": "第1组", "members": crowd}]))
+    assert open_game(sessions, games, dict(spec, teams=[{"name": "第1组", "members": crowd}]))  # 正式的班不受这个限制

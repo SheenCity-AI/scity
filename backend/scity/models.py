@@ -165,6 +165,7 @@ class Game(Base):
     stage_opened_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     stage_deadline: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)  # 每次有变化加 1，各台电脑靠它知道要不要刷新
+    last_lesson: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 体验班：只开到第几次课；空着表示上完整门课
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

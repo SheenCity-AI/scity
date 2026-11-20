@@ -298,3 +298,24 @@ def test_talk_is_refused_after_the_deadline_or_when_the_stage_moved_on(room):
     with pytest.raises(GameError, match="这个阶段已经结束"):
         room.games.talk_save(room.game, c, seat.stage, "还来得及吗？", "……")  # 模型回答期间老师点了下一步：不记
     assert room.games.state(room.game).talks == {}
+
+
+def test_a_trial_game_stops_after_the_lessons_it_opened(room):
+    teacher = room.ctx(room.teacher)
+    with pytest.raises(GameError, match="体验班至少要开一次课"):
+        room.games.create(room.workspace, "toy@1", seed="t", teams=[{"name": "甲", "members": [room.a]}], last_lesson=0)
+    game = room.games.create(room.workspace, "toy@1", seed="t", teams=[{"name": "甲", "members": [room.a]}], last_lesson=1)
+    view = room.games.view(game, teacher)
+    assert view["trial"] == 1 and [s["key"] for s in view["stages"]] == ["intro", "bid", "reveal"]  # 第 2 次课的阶段不列出来
+    room.games.advance(game, teacher)
+    room.games.advance(game, teacher)
+    room.games.submit(game, room.ctx(room.a), {"price": 200})
+    room.games.advance(game, teacher)
+    assert not room.games.view(game, teacher)["finished"] and not room.games.state(game).finished
+    room.games.advance(game, teacher)  # 第 1 次课的最后一个阶段结束：体验到此为止，不进第 2 次课
+    done = room.games.view(game, teacher)
+    assert done["finished"] and done["stage"] is None and [s["status"] for s in done["stages"]] == ["done"] * 3
+    assert room.games.state(game).finished
+    with pytest.raises(GameError, match="已经结束"):
+        room.games.advance(game, teacher)
+    assert room.games.view(room.games.create(room.workspace, "toy@1", seed="f", teams=[{"name": "甲", "members": [room.a]}]), teacher)["trial"] is None

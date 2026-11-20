@@ -86,6 +86,7 @@ class GameState:
     seed: str
     stage: str | None
     teams: list[TeamInfo]
+    finished: bool = False      # 这一局已经结束（上完了，或者体验班开到头了）
     stage_minutes: float = 0.0  # 当前阶段已经开了多少分钟（按服务器时间），课程可据此按时推送快讯
     decisions: dict[str, dict[str, dict]] = field(default_factory=dict)  # 阶段 → 组 → 最后一次填报
     results: dict[str, dict] = field(default_factory=dict)               # 阶段 → 关闭时算出的结果

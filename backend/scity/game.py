@@ -45,17 +45,19 @@ class GameService:
 
     # ---------- 开局 ----------
 
-    def create(self, workspace_id: int, course_ref: str, seed: str, teams: list[dict]) -> int:
-        """在一个课题工作区里开一局；这个工作区原来进行中的局归档。"""
+    def create(self, workspace_id: int, course_ref: str, seed: str, teams: list[dict], last_lesson: int | None = None) -> int:
+        """在一个课题工作区里开一局；这个工作区原来进行中的局归档。last_lesson：体验班只开到第几次课。"""
         if course_ref not in self._courses:
             raise GameError(f"没有安装课程 {course_ref}")
+        if last_lesson is not None and not any(s.lesson <= last_lesson for s in self._courses[course_ref].stages):
+            raise GameError("体验班至少要开一次课")
         members = [user for team in teams for user in team.get("members", [])]
         if len(members) != len(set(members)):
             raise GameError("一个人不能同时在两个组")
         with self._sessions.begin() as db:
             for old in db.scalars(select(Game).where(Game.workspace_id == workspace_id, Game.archived_at.is_(None))):
                 old.archived_at = self._now()
-            game = Game(workspace_id=workspace_id, course_ref=course_ref, seed=seed)
+            game = Game(workspace_id=workspace_id, course_ref=course_ref, seed=seed, last_lesson=last_lesson)
             db.add(game)
             db.flush()
             for spec in teams:
@@ -105,7 +107,7 @@ class GameService:
         for m in db.scalars(select(TeamMember).where(TeamMember.game_id == game.id).order_by(TeamMember.id)):
             members[m.team_id].append(m.user_id)
         elapsed = (self._now() - game.stage_opened_at).total_seconds() / 60 if game.stage_opened_at else 0.0
-        state = GameState(seed=game.seed, stage=game.stage, stage_minutes=elapsed,
+        state = GameState(seed=game.seed, stage=game.stage, stage_minutes=elapsed, finished=game.finished_at is not None,
                           teams=[TeamInfo(t.name, t.company, t.npc, tuple(members[t.id])) for t in teams])
         for d in db.scalars(select(Decision).where(Decision.game_id == game.id).order_by(Decision.id)):
             state.decisions.setdefault(d.stage, {})[names[d.team_id]] = d.payload
@@ -176,7 +178,7 @@ class GameService:
                 self._close(db, game, course, current, ctx)
             index = stages.index(current) + 1 if current else 0
             now = self._now()
-            if index >= len(stages):
+            if index >= len(stages) or (game.last_lesson is not None and stages[index].lesson > game.last_lesson):
                 game.stage, game.stage_opened_at, game.stage_deadline, game.finished_at = None, None, None, now
             else:
                 nxt = stages[index]
@@ -338,7 +340,8 @@ class GameService:
             state = self._state(db, game)
             team = next((t.name for t in state.teams if ctx.user_id in t.members), None)
             current = self._stage(course.stages, game.stage)
-            position = course.stages.index(current) if current else (len(course.stages) if game.finished_at else -1)
+            shown = [s for s in course.stages if game.last_lesson is None or s.lesson <= game.last_lesson]  # 体验班只列出开放的几次课
+            position = shown.index(current) if current else (len(shown) if game.finished_at else -1)
             view = {
                 "game": game.id, "version": game.version, "role": ctx.role, "team": team,
                 "now": _iso(self._now()), "finished": game.finished_at is not None,
@@ -348,7 +351,8 @@ class GameService:
                                       "opened_at": _iso(game.stage_opened_at), "deadline": _iso(game.stage_deadline)},
                 "stages": [{"key": s.key, "name": s.name, "lesson": s.lesson,
                             "status": "done" if i < position else "current" if i == position else "todo"}
-                           for i, s in enumerate(course.stages)],
+                           for i, s in enumerate(shown)],
+                "trial": game.last_lesson,
                 "course": course.view(state, team, ctx.role),
             }
             if ctx.role == "teacher" and current and current.form:

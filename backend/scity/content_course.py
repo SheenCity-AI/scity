@@ -398,7 +398,7 @@ class ContentCourse:
         missing = self.ungraded(state, lesson) if lesson else []
         if missing:
             raise GameError(f"第 {lesson} 次课的评分还没打完（还差 {len(missing)} 格）。老师课后打完分，才能进入下一步。")
-        return {"finished": True} if stage == self.stages[-1].key else None
+        return None
 
     # ---------- 页面 ----------
 
@@ -474,7 +474,7 @@ class ContentCourse:
 
     def view(self, state, team, role):
         keys = [s.key for s in self.stages]
-        over = self.stages[-1].key in state.results
+        over = state.finished
         reached = keys if over else keys[:keys.index(state.stage) + 1] if state.stage in keys else []
         node = self.nodes.get(state.stage)
         view = {"title": self.name, "companies": {t.name: t.company or t.name for t in state.teams},
@@ -514,7 +514,7 @@ class ContentCourse:
     def brief(self, state, team, role) -> str:
         node = self.nodes.get(state.stage)
         if node is None:
-            return f"课程：{self.name}。" + ("这一局已经全部结束。" if self.stages[-1].key in state.results else "老师还没有点开始。")
+            return f"课程：{self.name}。" + ("这一局已经全部结束。" if state.finished else "老师还没有点开始。")
         lines = [f"课程：{self.name}。现在是第 {node.stage.lesson} 次课的阶段“{node.stage.name}”。"]
         if role == "teacher":
             lines.append(f"这一步老师要做的：{node.script}" if node.script else "")

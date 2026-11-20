@@ -112,6 +112,9 @@ def open_course(sessions: sessionmaker, spaces: SpaceService, wallets: WalletSer
     return CourseOpened(school, klass, workspace, len(teachers), len(students), granted)
 
 
+TRIAL_SEATS = 10
+
+
 def open_game(sessions: sessionmaker, games: GameService, spec: dict) -> int:
     with sessions() as db:
         workspace = db.get(Workspace, spec.get("workspace"))
@@ -126,7 +129,14 @@ def open_game(sessions: sessionmaker, games: GameService, spec: dict) -> int:
         strangers = [u for u in team.get("members", []) if u not in students]
         if strangers:
             raise ValueError(f"{team.get('name')} 里有人不是这个班的学生：{strangers}")
-    return games.create(workspace.id, workspace.course_ref, spec.get("seed", ""), teams)
+    trial = spec.get("trial_lessons")  # 体验班：只开前几次课，给院长和老师自己体验，不超过 10 人
+    if trial is not None:
+        people = sum(len(t.get("members", [])) for t in teams)
+        if not isinstance(trial, int) or trial < 1:
+            raise ValueError("trial_lessons 要写体验几次课（1 或 2）")
+        if people > TRIAL_SEATS:
+            raise ValueError(f"体验班不超过 {TRIAL_SEATS} 人，现在是 {people} 人")
+    return games.create(workspace.id, workspace.course_ref, spec.get("seed", ""), teams, last_lesson=trial)
 
 
 def _print_spaces(sessions: sessionmaker) -> None:

@@ -170,3 +170,17 @@ def test_a_whole_course_runs_from_files_alone(room):
     assert done["finished"] and done["course"]["hint"] == "课程已经全部结束。" and len(done["course"]["pages"]) == 6
     assert course.total(room.games.state(room.game), "第1组") == (88.0, 1.0)
     assert course.card_scores(room.games.state(room.game), "第1组") == {"K-SJ-001": 8.5, "K-SJ-003": 9, "K-SJ-004": 9}
+
+
+def test_a_trial_of_a_content_course_shows_only_what_was_taught(room):
+    game = room.games.create(room.ctx(room.teacher).workspace_id, room.course.ref, seed="t", teams=[{"name": "第1组", "members": [room.a]}], last_lesson=1)
+    teacher = room.ctx(room.teacher)
+    room.games.advance(game, teacher), room.games.advance(game, teacher)
+    room.games.submit(game, room.ctx(room.a), SURVEY)
+    room.games.advance(game, teacher)
+    room.games.record(game, teacher, {"scores": {"第1组": {"B1": 7}}})
+    room.games.advance(game, teacher)
+    done = room.games.view(game, room.ctx(room.a))
+    assert done["finished"] and done["trial"] == 1 and done["course"]["hint"] == "课程已经全部结束。"
+    assert set(done["course"]["pages"]) == {"n01", "n02", "n03"} and set(done["course"]["materials"]) == {"n01", "n02", "n03"}
+    assert "听使用者" not in str(done) and "出方案" not in str(done["course"])  # 第 2 次课的内容不带

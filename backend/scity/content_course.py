@@ -475,7 +475,8 @@ class ContentCourse:
     def view(self, state, team, role):
         keys = [s.key for s in self.stages]
         over = state.finished
-        reached = keys if over else keys[:keys.index(state.stage) + 1] if state.stage in keys else []
+        # 结束以后只给实际上过的阶段（体验班只上了前一两次课）
+        reached = [k for k in keys if k in state.spent] if over else keys[:keys.index(state.stage) + 1] if state.stage in keys else []
         node = self.nodes.get(state.stage)
         view = {"title": self.name, "companies": {t.name: t.company or t.name for t in state.teams},
                 "hint": node.hint if node else "课程已经全部结束。" if over else "等老师开始上课。",

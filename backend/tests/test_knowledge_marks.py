@@ -86,8 +86,9 @@ def test_teacher_sees_the_class_summary_and_single_students_only_while_the_cours
     teacher = to_first_gate(room)
     room.games.record(room.game, teacher, {"scores": {"第1组": {"B1": 8.5}, "第2组": {"B1": 4}}})
     ws = teacher.workspace_id
-    with sessions.begin() as db:  # 甲在别的课上学到的：不进这个班的汇总
-        other = Game(workspace_id=ws + 100, course_ref="other@1.0")
+    elsewhere = spaces.create_workspace(teacher.space_id, "topic", "另一门课", "other@1.0")
+    with sessions.begin() as db:  # 甲在别的课上学到的：不进这个班这门课的汇总
+        other = Game(workspace_id=elsewhere, course_ref="other@1.0")
         db.add(other)
         db.flush()
         db.add(KnowledgeMark(user_id=room.a, point_code="K-SJ-009", game_id=other.id, course_ref="other@1.0", score=9, touches=5))

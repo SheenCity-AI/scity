@@ -3,7 +3,8 @@
 文件夹里的文件（只有第一份必须有）：
   课程.md       名称、编号、版本，每次课有哪些阶段，每个阶段的资料、讲稿、学生要交什么、可以对话的角色
   评价板块.md   老师课后按组、按板块打分用：每个板块属于哪次课、含哪些知识点、占总分多少、评分要点
-  知识点.csv    表头含“编号、名称、深度”；深度写“展开”或“点到”，板块的分只落到“展开”的知识点上
+  知识点.csv    表头含“编号、名称、深度”，可以再加一列“出现在”（阶段编号，如 N02、N04）；深度写“展开”或“点到”，
+                板块的分只落到“展开”的知识点上；“出现在”用来算接触次数和课上学习时间
   名词解释.md   “## 名词”下面一段解释，页面上出现这些词时可以点开看
 
 课程.md 的写法见 tests/fixtures/sample_course/课程.md。平台能做的就这几样：按阶段推进、倒计时、发资料、
@@ -186,7 +187,8 @@ def read_blocks(folder: Path, lessons: set[int]) -> tuple[list[dict], dict]:
             for row in csv.DictReader(fh):
                 code = (row.get("编号") or "").strip()
                 if code:
-                    points[code] = {"name": (row.get("名称") or "").strip(), "deep": (row.get("深度") or "展开").strip() != "点到"}
+                    points[code] = {"name": (row.get("名称") or "").strip(), "deep": (row.get("深度") or "展开").strip() != "点到",
+                                    "stages": [x.lower() for x in re.findall(r"N\d{2,3}", row.get("出现在") or "", flags=re.I)]}
     blocks, cur = [], None
     path = Path(folder) / "评价板块.md"
     for line in path.read_text(encoding="utf-8").splitlines() if path.is_file() else []:
@@ -210,7 +212,7 @@ def read_blocks(folder: Path, lessons: set[int]) -> tuple[list[dict], dict]:
         if b["lesson"] not in lessons:
             raise CourseFormatError(f"评价板块.md：板块 {b['id']} 写的课次，课程.md 里没有")
         for code in b["cards"]:
-            points.setdefault(code, {"name": "", "deep": True})
+            points.setdefault(code, {"name": "", "deep": True, "stages": []})
     return blocks, points
 
 
@@ -352,8 +354,19 @@ class ContentCourse:
         done = self.grades(state)
         return [c for b in self.blocks if done.get(b["id"], {}).get(team) is not None for c in b["cards"] if not self.points[c]["deep"]]
 
+    QUIET_CAP = 10  # 没设时长的阶段，学习时间最多算 10 分钟（课后阶段会开着好几天）
+
+    def exposure(self, state, codes) -> tuple[dict, dict]:
+        """接触次数和课上学习时间：知识点“出现在”的阶段里，已经上过几个、一共上了多少分钟。"""
+        cap = {s.key: s.minutes or self.QUIET_CAP for s in self.stages}
+        seen = {c: [k for k in self.points[c]["stages"] if k in state.spent] for c in codes}
+        return ({c: len(ks) for c, ks in seen.items() if ks},  # “点到”的知识点只数次数，不算时间：它只是在资料里被提到
+                {c: sum(min(state.spent[k], cap.get(k, self.QUIET_CAP)) for k in ks) for c, ks in seen.items() if ks and self.points[c]["deep"]})
+
     def knowledge(self, state, team: str) -> dict:
-        return {"scores": self.card_scores(state, team), "touched": self.touched_cards(state, team)}
+        scores, touched = self.card_scores(state, team), self.touched_cards(state, team)
+        touches, minutes = self.exposure(state, list(scores) + touched)
+        return {"scores": scores, "touched": touched, "touches": touches, "minutes": minutes}
 
     def validate_record(self, stage, payload, state):
         lesson = self.gate(stage)

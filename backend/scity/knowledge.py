@@ -18,7 +18,9 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import sessionmaker
 
 from .models import (MAJOR_LEVELS, KnowledgeDomain, KnowledgeKeyword, KnowledgeLink, KnowledgeMark, KnowledgePoint,
-                     KnowledgePointMajor, Major, MajorNeighbor)
+                     KnowledgePointMajor, Major, MajorNeighbor, User)
+
+RINGS = {1: "本专业和相近专业", 2: "其他专业"}  # 第三圈“专业目录以外的兴趣”来自聊天，还没有做
 
 TIERS = ("点到", "了解", "理解", "会用")  # 实线泡泡的四档，从小到大
 UNDERSTAND, MASTER = 6.0, 8.5              # 10 分制：6 分以上“理解”，8.5 分以上“会用”（暂定，以后按真实成绩调）
@@ -210,6 +212,32 @@ class KnowledgeMap:
             return {"code": p.code, "name": p.name, "summary": p.summary, "domain": d.name, "domain_code": d.code, "group": d.group_name,
                     "group_code": d.group_code, "keywords": list(words), "related": list(related), "source": p.source}
 
+    @staticmethod
+    def _major(m: Major | None) -> dict | None:
+        return m and {"id": m.id, "level": m.level, "code": m.code, "name": m.name, "class_name": m.class_name or m.category}
+
+    def search_majors(self, level: str, q: str, limit: int = 30) -> list[dict]:
+        """给本人选专业用：按层次，在专业名称、专业类和代码里找。"""
+        q = q.strip()
+        with self._sessions() as db:
+            query = select(Major).where(Major.level == level)
+            if q:
+                query = query.where(Major.name.contains(q) | Major.class_name.contains(q) | Major.code.startswith(q))
+            return [self._major(m) for m in db.scalars(query.order_by(Major.code).limit(limit))]
+
+    def major_of(self, user_id: int) -> dict | None:
+        with self._sessions() as db:
+            user = db.get(User, user_id)
+            return self._major(db.get(Major, user.major_id)) if user and user.major_id else None
+
+    def set_major(self, user_id: int, major_id: int) -> dict:
+        with self._sessions.begin() as db:
+            major = db.get(Major, major_id)
+            if major is None:
+                raise ValueError("专业目录里没有这个专业")
+            db.get(User, user_id).major_id = major.id
+            return self._major(major)
+
     def mine(self, user_id: int) -> dict:
         """一个学生的实线泡泡：学过的课程包里、老师评过分的知识点。同一个知识点在几门课里都学过时，
         分数取最高的，次数和时长相加。返回的 links 只含两头都已点亮的关联。"""
@@ -229,6 +257,14 @@ class KnowledgeMap:
             ids = {p.id: code for code, (p, _) in known.items()}
             links = sorted({tuple(sorted((ids[a], ids[b]))) for a, b in db.execute(select(KnowledgeLink.point_id, KnowledgeLink.related_id).where(
                 KnowledgeLink.point_id.in_(ids or [0]), KnowledgeLink.related_id.in_(ids or [0])))})
+            user = db.get(User, user_id)
+            major = db.get(Major, user.major_id) if user and user.major_id else None
+            circle = set()  # 落在第一圈的知识点：挂在本专业或相近专业下面的
+            if major is not None:
+                mine_and_near = {major.id} | set(db.scalars(select(MajorNeighbor.neighbor_id).where(MajorNeighbor.major_id == major.id)))
+                circle = {ids[pid] for pid in db.scalars(select(KnowledgePointMajor.point_id).where(
+                    KnowledgePointMajor.point_id.in_(ids or [0]), KnowledgePointMajor.major_id.in_(mine_and_near)))}
+            major = self._major(major)
         points = []
         for code, one in merged.items():
             p, d = known.get(code, (None, None))
@@ -237,9 +273,9 @@ class KnowledgeMap:
                            "domain": d.name if d else "", "domain_code": d.code if d else "", "group": d.group_name if d else "",
                            "group_code": d.group_code if d else "", "tier": TIERS[level], "level": level, "score": one["score"],
                            "touches": one["touches"], "minutes": round(one["minutes"], 1), "courses": one["courses"],
-                           "updated": one["updated"].strftime("%Y-%m-%d")})
+                           "updated": one["updated"].strftime("%Y-%m-%d"), "ring": None if major is None else 1 if code in circle else 2})
         points.sort(key=lambda x: (x["group_code"] or "~", x["domain_code"], x["code"]))
-        return {"points": points, "links": [list(pair) for pair in links],
+        return {"points": points, "links": [list(pair) for pair in links], "major": major, "rings": RINGS,
                 "counts": {name: sum(1 for x in points if x["level"] == i) for i, name in enumerate(TIERS)}}
 
     def match(self, word: str) -> list[str]:

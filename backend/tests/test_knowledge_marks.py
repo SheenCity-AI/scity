@@ -26,21 +26,24 @@ def to_first_gate(room):
 
 def marks(sessions, user):
     with sessions() as db:
-        return {m.point_code: (m.score, m.touches, m.course_ref) for m in db.scalars(select(KnowledgeMark).where(KnowledgeMark.user_id == user))}
+        return {m.point_code: (m.score, m.touches, m.minutes) for m in db.scalars(select(KnowledgeMark).where(KnowledgeMark.user_id == user))}
 
 
 def test_saving_scores_lights_up_every_member_of_the_team(room, sessions):
     teacher = to_first_gate(room)
     assert marks(sessions, room.a) == {}  # 老师没确认之前，什么都不亮
     room.games.record(room.game, teacher, {"scores": {"第1组": {"B1": 8.5}}})
-    expect = {"K-SJ-001": (8.5, 1, "campus-corner@0.1"), "K-SJ-002": (None, 1, "campus-corner@0.1")}
+    # 现场调研（N02）上了 20 分钟：“展开”的 K-SJ-001 记 1 次、20 分钟；“点到”的 K-SJ-002 出现在 N02、N03，记 2 次，不算时间
+    expect = {"K-SJ-001": (8.5, 1, 20.0), "K-SJ-002": (None, 2, 0.0)}
     assert marks(sessions, room.a) == expect and marks(sessions, room.b) == expect  # 同组两个人都记上
     assert marks(sessions, room.c) == {} and marks(sessions, room.teacher) == {}    # 没打分的组、老师自己：没有
     room.games.record(room.game, teacher, {"scores": {"第1组": {"B1": 5}, "第2组": {"B1": 9}}})  # 老师改分：跟着改，不重复记
-    assert marks(sessions, room.a)["K-SJ-001"] == (5.0, 1, "campus-corner@0.1") and len(marks(sessions, room.a)) == 2
+    assert marks(sessions, room.a)["K-SJ-001"] == (5.0, 1, 20.0) and len(marks(sessions, room.a)) == 2
     assert marks(sessions, room.c)["K-SJ-001"][0] == 9.0
     with sessions() as db:
-        assert db.scalar(select(KnowledgeMark).where(KnowledgeMark.user_id == room.c, KnowledgeMark.point_code == "K-SJ-001")).game_id == room.game
+        mark = db.scalar(select(KnowledgeMark).where(KnowledgeMark.user_id == room.c, KnowledgeMark.point_code == "K-SJ-001"))
+        assert (mark.game_id, mark.course_ref) == (room.game, "campus-corner@0.1")
+    assert room.games.state(room.game).spent == {"n01": 0.0, "n02": 20.0, "n03": 0.0}
 
 
 def test_my_map_merges_courses_and_only_shows_my_own(room, sessions, spaces, wallets):
@@ -62,10 +65,13 @@ def test_my_map_merges_courses_and_only_shows_my_own(room, sessions, spaces, wal
     by = {x["code"]: x for x in mine["points"]}
     assert (by["K-SJ-001"]["tier"], by["K-SJ-001"]["name"], by["K-SJ-001"]["domain"], by["K-SJ-001"]["group"]) == ("会用", "现场调研方法", "设计调研", "设计基础")
     assert (by["K-SJ-002"]["tier"], by["K-SJ-002"]["in_map"], by["K-SJ-002"]["name"]) == ("点到", False, "K-SJ-002")  # 总图里还没有的：先显示编号
+    assert (by["K-SJ-001"]["touches"], by["K-SJ-001"]["minutes"], by["K-SJ-002"]["touches"]) == (1, 20.0, 2)
     assert (by["K-SJ-009"]["tier"], by["K-SJ-009"]["touches"], by["K-SJ-009"]["courses"]) == ("了解", 3, ["other@1.0"])
     assert mine["links"] == [["K-SJ-001", "K-SJ-009"]] and mine["counts"] == {"点到": 1, "了解": 1, "理解": 0, "会用": 1}
-    assert {x["code"]: x["tier"] for x in km.mine(room.c)["points"]} == {"K-SJ-001": "点到", "K-SJ-002": "点到"}  # 4 分：没到“理解”
-    assert km.mine(room.teacher) == {"points": [], "links": [], "counts": {"点到": 0, "了解": 0, "理解": 0, "会用": 0}}
+    # 4 分：没到“理解”；但这一步在课上学了 20 分钟，算“了解”。只是点到的那个仍是小点
+    assert {x["code"]: x["tier"] for x in km.mine(room.c)["points"]} == {"K-SJ-001": "了解", "K-SJ-002": "点到"}
+    empty = km.mine(room.teacher)
+    assert (empty["points"], empty["links"], empty["major"], empty["counts"]) == ([], [], None, {"点到": 0, "了解": 0, "理解": 0, "会用": 0})
     settings = SimpleNamespace(spend_cap_yuan=None, demo_enroll=False, web_secret=SECRET, feishu_app_id="cli_test")
     app = create_app(settings, sessions, spaces, wallets, FakeAssistant(), FakeLogin(), games=room.games)
     client = TestClient(app, base_url="https://testserver")

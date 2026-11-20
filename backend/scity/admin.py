@@ -31,7 +31,7 @@ from sqlalchemy.orm import sessionmaker
 from .course import load_courses
 from .game import GameService
 from .knowledge import KnowledgeMap
-from .models import Membership, Space, User, Workspace, make_session_factory
+from .models import Major, Membership, Space, User, Workspace, make_session_factory
 from .settings import load_settings
 from .spaces import SpaceService
 from .wallet import WalletService
@@ -64,6 +64,10 @@ def _check(sessions: sessionmaker, spec: dict) -> None:
                     raise ValueError(f"没有编号为 {person['user_id']} 的用户")
             elif not person.get("open_id"):
                 raise ValueError(f"名单里有人既没有 open_id 也没有 user_id：{person}")
+            if person.get("major_code") and db.scalar(select(Major.id).where(
+                    Major.level == person.get("level", ""), Major.code == person["major_code"])) is None:
+                raise ValueError(f"专业目录里没有“{person.get('level', '')} {person['major_code']}”（{person.get('name', '')}）。"
+                                 "层次写 本科、高职专科 或 职业本科，代码按教育部专业目录")
     subsidy = spec.get("subsidy")
     if subsidy:
         if not isinstance(subsidy.get("points"), int) or subsidy["points"] <= 0:
@@ -79,6 +83,8 @@ def open_course(sessions: sessionmaker, spaces: SpaceService, wallets: WalletSer
     workspace = (spaces.find_workspace(klass, course["name"])
                  or spaces.create_workspace(klass, "topic", course["name"], course.get("ref", "")))
 
+    knowledge = KnowledgeMap(sessions)
+
     def enroll(people: list[dict], role: str) -> list[int]:
         ids = []
         for person in people:
@@ -86,6 +92,8 @@ def open_course(sessions: sessionmaker, spaces: SpaceService, wallets: WalletSer
             if person.get("name"):
                 spaces.set_display_name(user_id, person["name"])
             spaces.add_member(user_id, klass, role)
+            if person.get("major_code"):  # 名单里可以带上层次和专业代码，如 "level": "本科", "major_code": "082801"（_check 已经核对过）
+                knowledge.set_major(user_id, knowledge.find_major(person["level"], person["major_code"]))
             ids.append(user_id)
         return ids
 

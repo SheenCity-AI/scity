@@ -26,6 +26,7 @@ from .chat import CAP_REACHED, refusal
 from .demo import DemoEnrollment
 from .game import GameError, GameService
 from .knowledge import KnowledgeMap
+from .models import MAJOR_LEVELS
 from .personas import persona_for
 from .spaces import Context, NotMember, SpaceService, WorkspaceArchived
 from .wallet import SpendCapReached, WalletService, WalletView
@@ -124,6 +125,10 @@ class PayloadBody(BaseModel):
 
 class ExtendBody(BaseModel):
     minutes: int
+
+
+class MajorBody(BaseModel):
+    major_id: int
 
 
 MAX_TALK = 300
@@ -251,6 +256,23 @@ def create_app(settings, sessions, spaces: SpaceService, wallets: WalletService,
     def my_knowledge(user_id: int = Depends(current_user)) -> dict:
         """自己的知识图（实线泡泡）：只能看自己的。"""
         return knowledge.mine(user_id)
+
+    @app.get("/api/majors")
+    def majors(level: str, q: str = "", user_id: int = Depends(current_user)) -> dict:
+        """本人选专业时查专业目录（教育部本科、职业教育两套）。"""
+        if level not in MAJOR_LEVELS or len(q) > 20:
+            raise HTTPException(422, "层次只能是 " + "、".join(MAJOR_LEVELS))
+        return {"majors": knowledge.search_majors(level, q)}
+
+    @app.post("/api/me/major")
+    def set_major(body: MajorBody, user_id: int = Depends(current_user)) -> dict:
+        """登记或改自己的专业。知识图按它分圈；改了以后图会重新排，已经点亮的知识点不变。"""
+        try:
+            major = knowledge.set_major(user_id, body.major_id)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        log.info("major set user=%s major=%s", user_id, body.major_id)
+        return {"ok": True, "major": major}
 
     # ---------- 课题引擎：一局课的状态、填报和老师操作 ----------
 

@@ -111,7 +111,12 @@ class GameService:
             state.decisions.setdefault(d.stage, {})[names[d.team_id]] = d.payload
             state._history.setdefault((d.stage, names[d.team_id]), []).append(d.payload)
             (state.defaulted.add if d.user_id is None else state.defaulted.discard)((d.stage, names[d.team_id]))
+        opened = None  # (阶段, 开启时间)：到下一个阶段开启为止，算这个阶段上了多久
         for e in db.scalars(select(GameEvent).where(GameEvent.game_id == game.id).order_by(GameEvent.id)):
+            if e.kind == "open":
+                if opened:
+                    state.spent[opened[0]] = state.spent.get(opened[0], 0.0) + max(0.0, (e.created_at - opened[1]).total_seconds() / 60)
+                opened = (e.stage, e.created_at)
             if e.kind == "result":
                 state.results[e.stage] = e.payload
             elif e.kind == "record":
@@ -119,6 +124,9 @@ class GameService:
             elif e.kind == "talk" and e.payload.get("team") in names.values():
                 state.talks.setdefault(e.stage, {}).setdefault(e.payload["team"], []).append(
                     {"q": e.payload["q"], "a": e.payload["a"]})
+        if opened:
+            until = game.finished_at or self._now()
+            state.spent[opened[0]] = state.spent.get(opened[0], 0.0) + max(0.0, (until - opened[1]).total_seconds() / 60)
         return state
 
     @staticmethod
@@ -174,7 +182,7 @@ class GameService:
                 nxt = stages[index]
                 game.stage, game.stage_opened_at = nxt.key, now
                 game.stage_deadline = now + timedelta(minutes=nxt.minutes) if nxt.minutes else None
-                db.add(GameEvent(game_id=game.id, kind="open", stage=nxt.key, payload={}, user_id=ctx.user_id))
+                db.add(GameEvent(game_id=game.id, kind="open", stage=nxt.key, payload={}, user_id=ctx.user_id, created_at=now))
             game.version += 1
 
     def extend(self, game_id: int, ctx: Context, minutes: int) -> None:
@@ -221,16 +229,17 @@ class GameService:
                 continue
             lit = make(state, team.name)
             rows = {**{code: None for code in lit.get("touched", [])}, **lit.get("scores", {})}
+            touches, minutes = lit.get("touches") or {}, lit.get("minutes") or {}
             for user_id in team.members:
                 have = {m.point_code: m for m in db.scalars(select(KnowledgeMark).where(
                     KnowledgeMark.user_id == user_id, KnowledgeMark.game_id == game.id))}
                 for code, score in rows.items():
-                    mark = have.get(code)
+                    mark, n, m = have.get(code), max(1, int(touches.get(code, 1))), round(float(minutes.get(code, 0.0)), 1)
                     if mark is None:
                         db.add(KnowledgeMark(user_id=user_id, point_code=code, game_id=game.id, course_ref=game.course_ref,
-                                             score=score, touches=1, created_at=now, updated_at=now))
-                    elif mark.score != score:
-                        mark.score, mark.updated_at = score, now
+                                             score=score, touches=n, minutes=m, created_at=now, updated_at=now))
+                    elif (mark.score, mark.touches, mark.minutes) != (score, max(mark.touches, n), max(mark.minutes, m)):
+                        mark.score, mark.touches, mark.minutes, mark.updated_at = score, max(mark.touches, n), max(mark.minutes, m), now
 
     # ---------- 学生的操作 ----------
 

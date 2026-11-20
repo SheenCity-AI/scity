@@ -37,6 +37,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     feishu_open_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(64), default="")
+    major_id: Mapped[int | None] = mapped_column(ForeignKey("major.id"), nullable=True)  # 本人的专业（含层次）；知识图以它为中心分圈
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 

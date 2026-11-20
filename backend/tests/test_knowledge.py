@@ -76,3 +76,48 @@ def test_importing_again_updates_in_place_and_keeps_majors_that_left_the_list(se
     point = km.point("K-KF-008")
     assert point["domain"] == "方案前期" and point["keywords"] == ["容积率"] and point["related"] == [] and point["summary"] == "改了领域"
     assert km.stats()["points"] == 3 and km.match("绿地率") == []  # 清单里没有的知识点留着；这个知识点的关键词按新表
+
+
+def test_a_student_registers_a_major_and_the_map_sorts_points_into_rings(sessions, folder, spaces, wallets):
+    from types import SimpleNamespace
+
+    from fastapi.testclient import TestClient
+
+    from scity.admin import open_course
+    from scity.models import Game, KnowledgeMark, Workspace
+    from scity.web import create_app, sign_session
+    from tests.test_web import SECRET, FakeAssistant, FakeLogin
+    km = KnowledgeMap(sessions)
+    km.import_dir(folder)
+    roster = {"school": "甲学校", "class": "一班", "course": {"name": "沙盘", "ref": "toy@1"},
+              "students": [{"open_id": "ou_a", "name": "甲", "level": "本科", "major_code": "082802"}, {"open_id": "ou_b", "name": "乙"}]}
+    with pytest.raises(ValueError, match="专业目录里没有“本科 999999”"):  # 代码写错：整份名单拒绝，不留下建了一半的班
+        open_course(sessions, spaces, wallets, {**roster, "students": [{"open_id": "ou_x", "name": "丙", "level": "本科", "major_code": "999999"}]})
+    assert spaces.find_space("school", "甲学校") is None
+    opened = open_course(sessions, spaces, wallets, roster)
+    a, b = spaces.ensure_user("ou_a"), spaces.ensure_user("ou_b")
+    assert km.major_of(a)["name"] == "城乡规划" and km.major_of(b) is None  # 名单里带了专业的，开班时就登记上
+    with sessions.begin() as db:
+        game = Game(workspace_id=opened.workspace_id, course_ref="toy@1")
+        db.add(game)
+        db.flush()
+        for user in (a, b):
+            for code in ("K-KF-004", "K-KF-008"):
+                db.add(KnowledgeMark(user_id=user, point_code=code, game_id=game.id, course_ref="toy@1", score=7))
+    # K-KF-008 挂在建筑学、城乡规划下面；K-KF-004 只挂在房地产开发与管理下面
+    assert {x["code"]: x["ring"] for x in km.mine(a)["points"]} == {"K-KF-004": 2, "K-KF-008": 1}
+    assert km.mine(a)["major"]["level"] == "本科" and km.mine(a)["rings"] == {1: "本专业和相近专业", 2: "其他专业"}
+    assert {x["ring"] for x in km.mine(b)["points"]} == {None} and km.mine(b)["major"] is None  # 没登记专业：先不分圈
+    settings = SimpleNamespace(spend_cap_yuan=None, demo_enroll=False, web_secret=SECRET, feishu_app_id="cli_test")
+    client = TestClient(create_app(settings, sessions, spaces, wallets, FakeAssistant(), FakeLogin()), base_url="https://testserver")
+    assert client.get("/api/majors", params={"level": "本科", "q": "建筑"}).status_code == 401
+    client.cookies.set("scity_session", sign_session(b, SECRET))
+    found = client.get("/api/majors", params={"level": "本科", "q": "建筑"}).json()["majors"]
+    assert [m["name"] for m in found] == ["建筑学", "城乡规划"] and found[0]["class_name"] == "建筑类"  # 按名称和专业类都能找到
+    assert [m["name"] for m in client.get("/api/majors", params={"level": "高职专科", "q": "4401"}).json()["majors"]] == ["建筑设计"]
+    assert client.get("/api/majors", params={"level": "中职", "q": ""}).status_code == 422
+    assert client.post("/api/me/major", json={"major_id": 99999}).status_code == 404
+    done = client.post("/api/me/major", json={"major_id": found[0]["id"]}).json()
+    assert done["major"]["name"] == "建筑学" and client.get("/api/knowledge/me").json()["major"]["code"] == "082801"
+    assert {x["code"]: x["ring"] for x in client.get("/api/knowledge/me").json()["points"]} == {"K-KF-004": 2, "K-KF-008": 1}
+    assert km.major_of(a)["name"] == "城乡规划"  # 只改了自己的

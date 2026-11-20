@@ -79,3 +79,48 @@ def test_my_map_merges_courses_and_only_shows_my_own(room, sessions, spaces, wal
     client.cookies.set("scity_session", sign_session(room.c, SECRET))
     got = client.get("/api/knowledge/me").json()
     assert [x["code"] for x in got["points"]] == ["K-SJ-001", "K-SJ-002"] and "8.5" not in str(got)  # 只有自己的，看不到别的组的分
+
+
+def test_teacher_sees_the_class_summary_and_single_students_only_while_the_course_runs(room, sessions, spaces, wallets):
+    from scity.models import Game, utcnow
+    teacher = to_first_gate(room)
+    room.games.record(room.game, teacher, {"scores": {"第1组": {"B1": 8.5}, "第2组": {"B1": 4}}})
+    ws = teacher.workspace_id
+    with sessions.begin() as db:  # 甲在别的课上学到的：不进这个班的汇总
+        other = Game(workspace_id=ws + 100, course_ref="other@1.0")
+        db.add(other)
+        db.flush()
+        db.add(KnowledgeMark(user_id=room.a, point_code="K-SJ-009", game_id=other.id, course_ref="other@1.0", score=9, touches=5))
+    spaces.set_display_name(room.a, "甲同学")
+    km = KnowledgeMap(sessions)
+    data = km.klass(ws)
+    assert data["klass"]["size"] == 3 and data["klass"]["open"] is True and data["klass"]["name"] == "校园一角"
+    by = {x["code"]: x for x in data["points"]}
+    assert set(by) == {"K-SJ-001", "K-SJ-002"}
+    one = by["K-SJ-001"]  # 甲、乙 8.5 分“会用”，丙 4 分但课上学了 20 分钟“了解”；全班平均 7 分
+    assert (one["lit"], one["dist"], one["score"], one["tier"], one["touches"], one["minutes"]) == (3, [0, 1, 0, 2], 7.0, "理解", 1.0, 20.0)
+    assert (by["K-SJ-002"]["dist"], by["K-SJ-002"]["score"], by["K-SJ-002"]["tier"]) == ([3, 0, 0, 0], None, "点到")
+    roster = {s["name"]: s for s in data["klass"]["students"]}
+    assert roster["甲同学"]["lit"] == 2 and roster["甲同学"]["counts"] == [1, 0, 0, 1] and len(roster) == 3
+    assert data["major"] is None and all(x["ring"] is None for x in data["points"])  # 班里没人登记专业：分不出冷暖
+
+    settings = SimpleNamespace(spend_cap_yuan=None, demo_enroll=False, web_secret=SECRET, feishu_app_id="cli_test")
+    app = create_app(settings, sessions, spaces, wallets, FakeAssistant(), FakeLogin(), games=room.games)
+
+    def client(user):
+        c = TestClient(app, base_url="https://testserver")
+        c.cookies.set("scity_session", sign_session(user, SECRET))
+        return c
+    t, a = client(room.teacher), client(room.a)
+    assert a.get(f"/api/workspaces/{ws}/knowledge").status_code == 403           # 学生看不了全班的
+    assert a.get(f"/api/workspaces/{ws}/knowledge/{room.b}").status_code == 403  # 也看不了同学的
+    got = t.get(f"/api/workspaces/{ws}/knowledge").json()
+    assert got["klass"]["size"] == 3 and len(got["points"]) == 2
+    single = t.get(f"/api/workspaces/{ws}/knowledge/{room.a}").json()
+    assert single["student"]["name"] == "甲同学" and {x["code"] for x in single["points"]} == {"K-SJ-001", "K-SJ-002", "K-SJ-009"}  # 单个学生是整张图
+    assert t.get(f"/api/workspaces/{ws}/knowledge/{room.teacher}").status_code == 404  # 不是这个班的学生
+    with sessions.begin() as db:
+        db.get(Game, room.game).finished_at = utcnow()
+    ended = t.get(f"/api/workspaces/{ws}/knowledge/{room.a}")
+    assert ended.status_code == 403 and "只保留全班汇总" in ended.json()["detail"]  # 课程结束后不能再看单个学生
+    assert t.get(f"/api/workspaces/{ws}/knowledge").json()["klass"]["open"] is False   # 全班汇总一直能看

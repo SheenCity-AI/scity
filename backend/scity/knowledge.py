@@ -18,7 +18,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import sessionmaker
 
 from .models import (MAJOR_LEVELS, KnowledgeDomain, KnowledgeKeyword, KnowledgeLink, KnowledgeMark, KnowledgePoint,
-                     KnowledgePointMajor, Major, MajorNeighbor, User)
+                     KnowledgePointMajor, Major, MajorNeighbor, Membership, User, Workspace, Game)
 
 RINGS = {1: "本专业和相近专业", 2: "其他专业", 3: "专业以外的兴趣"}  # 学科主次，从近到远；第三圈来自聊天，真实数据里还没有
 # 演示用的“个人衍生的知识点”（虚线泡泡）：名字、第几圈、聊到几次、多少分钟。真实的要从聊天里识别，还没有做
@@ -241,46 +241,105 @@ class KnowledgeMap:
             db.get(User, user_id).major_id = major.id
             return self._major(major)
 
-    def mine(self, user_id: int) -> dict:
-        """一个学生的实线泡泡：学过的课程包里、老师评过分的知识点。同一个知识点在几门课里都学过时，
-        分数取最高的，次数和时长相加。返回的 links 只含两头都已点亮的关联。"""
-        with self._sessions() as db:
-            merged: dict[str, dict] = {}
-            for m in db.scalars(select(KnowledgeMark).where(KnowledgeMark.user_id == user_id).order_by(KnowledgeMark.id)):
-                one = merged.setdefault(m.point_code, {"score": None, "touches": 0, "minutes": 0.0, "courses": [], "updated": m.updated_at})
-                if m.score is not None and (one["score"] is None or m.score > one["score"]):
-                    one["score"] = m.score
-                one["touches"] += m.touches
-                one["minutes"] += m.minutes
-                one["updated"] = max(one["updated"], m.updated_at)
-                if m.course_ref not in one["courses"]:
-                    one["courses"].append(m.course_ref)
-            known = {p.code: (p, d) for p, d in db.execute(select(KnowledgePoint, KnowledgeDomain).join(
-                KnowledgeDomain, KnowledgeDomain.id == KnowledgePoint.domain_id).where(KnowledgePoint.code.in_(merged or [""])))}
-            ids = {p.id: code for code, (p, _) in known.items()}
-            links = sorted({tuple(sorted((ids[a], ids[b]))) for a, b in db.execute(select(KnowledgeLink.point_id, KnowledgeLink.related_id).where(
-                KnowledgeLink.point_id.in_(ids or [0]), KnowledgeLink.related_id.in_(ids or [0])))})
-            user = db.get(User, user_id)
-            major = db.get(Major, user.major_id) if user and user.major_id else None
-            circle = set()  # 落在第一圈的知识点：挂在本专业或相近专业下面的
-            if major is not None:
-                mine_and_near = {major.id} | set(db.scalars(select(MajorNeighbor.neighbor_id).where(MajorNeighbor.major_id == major.id)))
-                circle = {ids[pid] for pid in db.scalars(select(KnowledgePointMajor.point_id).where(
-                    KnowledgePointMajor.point_id.in_(ids or [0]), KnowledgePointMajor.major_id.in_(mine_and_near)))}
-            major = self._major(major)
+    @staticmethod
+    def _merge(marks) -> dict:
+        """一个人的若干条点亮记录合成一张图：同一个知识点分数取最高，次数和时长相加。"""
+        merged: dict[str, dict] = {}
+        for m in marks:
+            one = merged.setdefault(m.point_code, {"score": None, "touches": 0, "minutes": 0.0, "courses": [], "updated": m.updated_at})
+            if m.score is not None and (one["score"] is None or m.score > one["score"]):
+                one["score"] = m.score
+            one["touches"] += m.touches
+            one["minutes"] += m.minutes
+            one["updated"] = max(one["updated"], m.updated_at)
+            if m.course_ref not in one["courses"]:
+                one["courses"].append(m.course_ref)
+        return merged
+
+    def _draw(self, db, merged: dict, major: Major | None, extra: dict | None = None) -> dict:
+        """把合并好的记录配上总图里的名称、知识领域、关联和分圈，变成页面要的样子。"""
+        known = {p.code: (p, d) for p, d in db.execute(select(KnowledgePoint, KnowledgeDomain).join(
+            KnowledgeDomain, KnowledgeDomain.id == KnowledgePoint.domain_id).where(KnowledgePoint.code.in_(merged or [""])))}
+        ids = {p.id: code for code, (p, _) in known.items()}
+        links = sorted({tuple(sorted((ids[a], ids[b]))) for a, b in db.execute(select(KnowledgeLink.point_id, KnowledgeLink.related_id).where(
+            KnowledgeLink.point_id.in_(ids or [0]), KnowledgeLink.related_id.in_(ids or [0])))})
+        circle = set()  # 落在第一圈的知识点：挂在这个专业或相近专业下面的
+        if major is not None:
+            mine_and_near = {major.id} | set(db.scalars(select(MajorNeighbor.neighbor_id).where(MajorNeighbor.major_id == major.id)))
+            circle = {ids[pid] for pid in db.scalars(select(KnowledgePointMajor.point_id).where(
+                KnowledgePointMajor.point_id.in_(ids or [0]), KnowledgePointMajor.major_id.in_(mine_and_near)))}
         points = []
         for code, one in merged.items():
             p, d = known.get(code, (None, None))
-            level = tier(one["score"], one["touches"], one["minutes"])
+            level = tier(one["score"], round(one["touches"]), one["minutes"])
             points.append({"code": code, "name": p.name if p else code, "summary": p.summary if p else "", "in_map": p is not None,
                            "domain": d.name if d else "", "domain_code": d.code if d else "", "group": d.group_name if d else "",
                            "group_code": d.group_code if d else "", "tier": TIERS[level], "level": level, "score": one["score"],
                            "touches": one["touches"], "minutes": round(one["minutes"], 1), "courses": one["courses"],
                            "updated": one["updated"].strftime("%Y-%m-%d"), "ring": None if major is None else 1 if code in circle else 2,
-                           "derived": False})  # 课程里的知识点是实线；聊天里衍生出来的（虚线）还没有做
+                           "derived": False,  # 课程里的知识点是实线；聊天里衍生出来的（虚线）还没有做
+                           **{k: v for k, v in one.items() if k in ("dist", "lit")}})
         points.sort(key=lambda x: (x["group_code"] or "~", x["domain_code"], x["code"]))
-        return {"points": points, "links": [list(pair) for pair in links], "major": major, "rings": RINGS,
-                "counts": {name: sum(1 for x in points if x["level"] == i) for i, name in enumerate(TIERS)}}
+        return {"points": points, "links": [list(pair) for pair in links], "major": self._major(major), "rings": RINGS,
+                "counts": {name: sum(1 for x in points if x["level"] == i) for i, name in enumerate(TIERS)}, **(extra or {})}
+
+    def mine(self, user_id: int) -> dict:
+        """一个学生的实线泡泡：学过的课程包里、老师评过分的知识点。同一个知识点在几门课里都学过时，
+        分数取最高的，次数和时长相加。返回的 links 只含两头都已点亮的关联。"""
+        with self._sessions() as db:
+            merged = self._merge(db.scalars(select(KnowledgeMark).where(KnowledgeMark.user_id == user_id).order_by(KnowledgeMark.id)))
+            user = db.get(User, user_id)
+            return self._draw(db, merged, db.get(Major, user.major_id) if user and user.major_id else None)
+
+    def klass(self, workspace_id: int) -> dict:
+        """一个班在这门课里的全班汇总（给任课老师）：每个知识点有多少人点亮、各档各几人、平均分。
+        只算这个课题工作区里的课，不带学生在别的课上学到的。冷暖按班里登记最多的那个专业算。"""
+        with self._sessions() as db:
+            ws = db.get(Workspace, workspace_id)
+            students = {u.id: u for u in db.scalars(select(User).join(Membership, Membership.user_id == User.id).where(
+                Membership.space_id == ws.space_id, Membership.active, Membership.role == "student"))}
+            games = list(db.scalars(select(Game.id).where(Game.workspace_id == workspace_id)))
+            open_game = db.scalar(select(Game.id).where(Game.workspace_id == workspace_id, Game.archived_at.is_(None), Game.finished_at.is_(None)))
+            rows: dict[int, list] = {}
+            for m in db.scalars(select(KnowledgeMark).where(KnowledgeMark.game_id.in_(games or [0]), KnowledgeMark.user_id.in_(students or [0])).order_by(KnowledgeMark.id)):
+                rows.setdefault(m.user_id, []).append(m)
+            per = {uid: self._merge(ms) for uid, ms in rows.items()}
+            merged: dict[str, dict] = {}
+            for uid, own in per.items():
+                for code, one in own.items():
+                    agg = merged.setdefault(code, {"scores": [], "touches": 0, "minutes": 0.0, "courses": [], "updated": one["updated"], "dist": [0, 0, 0, 0], "lit": 0})
+                    if one["score"] is not None:
+                        agg["scores"].append(one["score"])
+                    agg["touches"] += one["touches"]
+                    agg["minutes"] += one["minutes"]
+                    agg["updated"] = max(agg["updated"], one["updated"])
+                    agg["dist"][tier(one["score"], one["touches"], one["minutes"])] += 1
+                    agg["lit"] += 1
+                    agg["courses"] = sorted(set(agg["courses"]) | set(one["courses"]))
+            for agg in merged.values():  # 全班的平均：分数只在有分的人里平均，次数和时间在点亮的人里平均
+                agg["score"] = round(sum(agg["scores"]) / len(agg["scores"]), 1) if agg["scores"] else None
+                agg["touches"] = round(agg["touches"] / agg["lit"], 1)
+                agg["minutes"] = agg["minutes"] / agg["lit"]
+            majors = [u.major_id for u in students.values() if u.major_id]
+            major = db.get(Major, max(set(majors), key=majors.count)) if majors else None
+            roster = [{"id": uid, "name": u.display_name or f"学生 {uid}", "lit": len(per.get(uid, {})),
+                       "counts": [sum(1 for one in per.get(uid, {}).values() if tier(one["score"], one["touches"], one["minutes"]) == i) for i in range(4)]}
+                      for uid, u in sorted(students.items(), key=lambda kv: kv[1].display_name)]
+            return self._draw(db, merged, major, {"klass": {"workspace": workspace_id, "name": ws.name, "size": len(students), "students": roster,
+                                                            "open": open_game is not None}})
+
+    def student_in(self, workspace_id: int, user_id: int) -> dict:
+        """任课老师看本班一个学生的整张图。课程结束以后只保留全班汇总，不能再看单个学生的。"""
+        with self._sessions() as db:
+            ws = db.get(Workspace, workspace_id)
+            member = db.scalar(select(Membership).where(Membership.space_id == ws.space_id, Membership.user_id == user_id,
+                                                        Membership.active, Membership.role == "student"))
+            if member is None:
+                raise LookupError("这个班里没有这位学生")
+            if db.scalar(select(Game.id).where(Game.workspace_id == workspace_id, Game.archived_at.is_(None), Game.finished_at.is_(None))) is None:
+                raise PermissionError("课程已经结束（或还没开课）：只保留全班汇总，不能再看单个学生的图")
+            name = db.get(User, user_id).display_name
+        return {**self.mine(user_id), "student": {"id": user_id, "name": name or f"学生 {user_id}", "workspace": workspace_id}}
 
     def demo(self) -> dict:
         """演示用的一张图（不是任何人的真实数据）：一个建筑学本科生学完总图里现有的知识点，再加几个聊天里衍生的。

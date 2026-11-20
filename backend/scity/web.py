@@ -257,6 +257,29 @@ def create_app(settings, sessions, spaces: SpaceService, wallets: WalletService,
         """自己的知识图（实线泡泡）：只能看自己的。"""
         return knowledge.mine(user_id)
 
+    def as_teacher(user_id: int, workspace_id: int) -> None:
+        if context(user_id, workspace_id).role != "teacher":
+            raise HTTPException(403, "只有这个班的任课老师可以看")
+
+    @app.get("/api/workspaces/{workspace_id}/knowledge")
+    def class_knowledge(workspace_id: int, user_id: int = Depends(current_user)) -> dict:
+        """任课老师看本班的全班汇总：每个知识点多少人点亮、各档各几人。看不到聊天内容。"""
+        as_teacher(user_id, workspace_id)
+        return knowledge.klass(workspace_id)
+
+    @app.get("/api/workspaces/{workspace_id}/knowledge/{student_id}")
+    def student_knowledge(workspace_id: int, student_id: int, user_id: int = Depends(current_user)) -> dict:
+        """任课老师在上课期间看本班一个学生的图；课程结束后不能再看。"""
+        as_teacher(user_id, workspace_id)
+        try:
+            data = knowledge.student_in(workspace_id, student_id)
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc)) from exc
+        log.info("student map viewed teacher=%s workspace=%s student=%s", user_id, workspace_id, student_id)
+        return data
+
     @app.get("/api/knowledge/demo")
     def demo_knowledge(user_id: int = Depends(current_user)) -> dict:
         """演示用的知识图：不是任何人的真实数据，页面上会写明。给还没有上过课的人（比如老师）看效果。"""

@@ -376,8 +376,17 @@ class ContentCourse:
                 for c in b["cards"] if self.points[c]["deep"]}
 
     def touched_cards(self, state, team: str) -> list[str]:
+        """“点到”的知识点：所在板块评过分的，加上没进任何板块、但“出现在”的阶段已经上过的（课上提到过就算碰到过）。"""
         done = self.grades(state)
-        return [c for b in self.blocks if done.get(b["id"], {}).get(team) is not None for c in b["cards"] if not self.points[c]["deep"]]
+        graded = {b["lesson"] for b in self.blocks if done.get(b["id"], {}).get(team) is not None}
+        if not graded:
+            return []
+        in_blocks = {c for b in self.blocks for c in b["cards"]}
+        lesson_of = {s.key: s.lesson for s in self.stages}
+        out = [c for b in self.blocks if done.get(b["id"], {}).get(team) is not None for c in b["cards"] if not self.points[c]["deep"]]
+        out += [c for c, v in self.points.items() if not v["deep"] and c not in in_blocks
+                and any(k in state.spent and lesson_of.get(k) in graded for k in v["stages"])]
+        return out
 
     QUIET_CAP = 10  # 没设时长的阶段，学习时间最多算 10 分钟（课后阶段会开着好几天）
 

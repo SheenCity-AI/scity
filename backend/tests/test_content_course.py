@@ -214,3 +214,26 @@ def test_acceptance_check_ties_knowledge_points_to_blocks(tmp_path):
     assert "板块里的知识点 K-SJ-004 不在 知识点.csv 里" in found
     assert any("K-SJ-005" in x and "没有进任何评价板块" in x for x in found) and any("K-SJ-006" in x and "没有进任何评价板块" in x for x in found)
     assert any("K-SJ-005" in x and "没有写“出现在”" in x for x in found)
+
+
+def test_points_only_mentioned_light_up_once_their_lesson_is_graded(tmp_path, sessions, spaces):
+    """“点到”的知识点不进板块也要在图上出现（小点）：它出现的阶段上过、那次课评过分以后。"""
+    shutil.copytree(SAMPLE, tmp_path / "c")
+    table = tmp_path / "c" / "知识点.csv"
+    table.write_text(table.read_text(encoding="utf-8") + "K-SJ-007,调研记录表,点到,N02\nK-SJ-008,方案汇报,点到,N06\n", encoding="utf-8")
+    course = ContentCourse(tmp_path / "c")
+    clock = Clock()
+    games = GameService(sessions, {course.ref: course}, now=clock)
+    teacher, a = spaces.ensure_user("ou_t2"), spaces.ensure_user("ou_a2")
+    klass = spaces.create_space("class", "二班")
+    ws = spaces.create_workspace(klass, "topic", "校园一角", course.ref)
+    spaces.add_member(teacher, klass, "teacher"), spaces.add_member(a, klass, "student")
+    game = games.create(ws, course.ref, seed="s", teams=[{"name": "第1组", "members": [a]}])
+    t = spaces.context(teacher, ws)
+    games.advance(game, t), games.advance(game, t)
+    games.submit(game, spaces.context(a, ws), SURVEY)
+    games.advance(game, t)
+    assert course.touched_cards(games.state(game), "第1组") == []  # 还没评分：什么都不亮
+    games.record(game, t, {"scores": {"第1组": {"B1": 7}}})
+    touched = course.touched_cards(games.state(game), "第1组")
+    assert "K-SJ-007" in touched and "K-SJ-002" in touched and "K-SJ-008" not in touched  # 第 2 次课的还没上

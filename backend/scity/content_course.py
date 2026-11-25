@@ -79,9 +79,9 @@ def _field(cells: list[str], where: str) -> dict:
         size = int(mb.group(1)) if mb else MAX_FILE_MB
         if size > MAX_FILE_MB:
             raise CourseFormatError(f"{where}：“{label}”单个文件最大 {MAX_FILE_MB}MB，现在写的是 {size}MB")
-        # 上传功能上线前，先收飞书云文档或网盘的链接
+        # 可以上传文件，也可以贴飞书云文档或网盘的链接
         out.update(type="text", link=True, max=500, file={"exts": exts, "mb": size},
-                   hint=(hint + "；" if hint else "") + f"上传功能上线前，先贴飞书云文档或网盘的链接（{'、'.join(exts) or '任意格式'}，不超过 {size}MB）")
+                   hint=(hint + "；" if hint else "") + f"上传文件（{'、'.join(exts) or '任意格式'}，不超过 {size}MB），或贴飞书云文档的链接")
     else:
         most = re.search(r"(\d+)\s*字", spec)
         out.update(type="text", max=int(most.group(1)) if most else (600 if kind == "长文字" else 100))
@@ -323,12 +323,18 @@ class ContentCourse:
                 raw = int(raw) if raw == int(raw) else raw
             else:
                 raw = str(raw).strip()
-                if f.get("link") and not re.match(r"https?://\S+$", raw):
-                    raise ValueError(f"“{f['label']}”要贴一个以 http 开头的链接")
+                if f.get("link") and not re.match(r"(https?://\S+|/api/files/[A-Za-z0-9_-]{20,40})$", raw):
+                    raise ValueError(f"“{f['label']}”要贴一个以 http 开头的链接" + ("，或者上传文件" if f.get("file") else ""))
                 if len(raw) > f["max"]:
                     raise ValueError(f"“{f['label']}”最多 {f['max']} 字，现在 {len(raw)} 字")
             out[f["key"]] = raw
         return out
+
+    def file_field(self, stage, key) -> dict | None:
+        """这个阶段的这一项是不是要上传的文件：是就返回允许的格式和大小上限（MB）。"""
+        node = self.nodes.get(stage)
+        f = next((f for f in (node.fields if node else []) if f["key"] == key and f.get("file")), None)
+        return dict(f["file"]) if f else None
 
     def default(self, stage, state, team):
         return None  # 没交就是没交，不替学生填
@@ -485,9 +491,11 @@ class ContentCourse:
                         for t in self.students(state)]
                 cards.append({"t": "table", "title": "各组提交的内容", "head": ["组"] + [f["label"] for f in node.fields], "rows": rows,
                               "note": "长的内容只显示开头。"})
-            if node.role:
+            if node.role:  # 老师能看学生和课里 AI 角色的对话（11-25 小宇哥定）；学生和自己助手的对话老师看不到
                 cards.append({"t": "kv", "title": f"各组和{node.role['name']}（AI 扮演）谈了几次", "rows": [[t, f"{len(talks.get(t, []))} 次"] for t in self.students(state)],
-                              "note": f"每组最多 {node.role['turns']} 次。谈的内容只有本组看得到。"})
+                              "note": f"每组最多 {node.role['turns']} 次。下面是各组谈的内容（本组和任课老师能看到）。"})
+                cards += [{"t": "talk", "title": f"{t}和{node.role['name']}的对话", "name": node.role["name"], "history": talks[t], "left": 0, "live": False, "hint": "", "note": ""}
+                          for t in self.students(state) if talks.get(t)]
             return {"cards": cards or [_text("", "这一步没有要收的内容。")]}
         if team is None:
             return {"cards": [_text("", "你不在这一局的任何组里，只能旁观。")]}

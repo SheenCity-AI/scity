@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from .course import GameState, Stage, TeamInfo
-from .models import Decision, Game, GameEvent, KnowledgeMark, Team, TeamMember, utcnow
+from .models import Decision, Game, GameEvent, KnowledgeMark, Team, TeamMember, UploadedFile, utcnow
 from .spaces import Context, resolve_context
 
 
@@ -264,6 +264,44 @@ class GameService:
                 raise GameError(str(exc)) from exc
             db.add(Decision(game_id=game.id, team_id=team.id, stage=stage.key, payload=payload, user_id=ctx.user_id))
             game.version += 1
+
+    # ---------- 学生上传文件 ----------
+
+    def upload_slot(self, game_id: int, ctx: Context, field: str) -> dict:
+        """上传之前：这个人在哪个组、当前阶段有没有这一项文件、允许什么格式和多大。不行就抛 GameError。"""
+        with self._sessions() as db:
+            game, ctx, course, stages = self._mutable(db, game_id, ctx)
+            member = db.scalar(select(TeamMember).where(TeamMember.game_id == game.id, TeamMember.user_id == ctx.user_id))
+            if member is None:
+                raise GameError("你不在这一局的任何组里")
+            if game.stage_deadline is not None and self._now() >= game.stage_deadline:
+                raise GameError("这个阶段的提交已经截止")
+            spec = getattr(course, "file_field", lambda *_: None)(game.stage, field)
+            if spec is None:
+                raise GameError("这一步没有要上传的文件")
+            return {"game": game.id, "team": member.team_id, "stage": game.stage, "field": field, "user": ctx.user_id, **spec}
+
+    def save_upload(self, slot: dict, token: str, name: str, size: int, path: str) -> None:
+        with self._sessions.begin() as db:
+            db.add(UploadedFile(token=token, game_id=slot["game"], team_id=slot["team"], user_id=slot["user"], stage=slot["stage"],
+                                field=slot["field"], name=name, size=size, path=path))
+
+    def open_file(self, token: str, ctx_user: int) -> UploadedFile:
+        """取一个上传的文件：同组的成员和这个班的任课老师能看，别人一律当作没有这个文件。"""
+        with self._sessions() as db:
+            f = db.scalar(select(UploadedFile).where(UploadedFile.token == token))
+            if f is None:
+                raise GameError("没有这个文件")
+            game = db.get(Game, f.game_id)
+            if db.scalar(select(TeamMember).where(TeamMember.team_id == f.team_id, TeamMember.user_id == ctx_user)) is None:
+                try:
+                    role = resolve_context(db, ctx_user, game.workspace_id).role
+                except Exception:  # 不是这个班的人、工作区已归档：都当作看不了
+                    role = None
+                if role != "teacher":
+                    raise GameError("没有这个文件")
+            db.expunge(f)
+            return f
 
     # ---------- 和课里的 AI 角色对话 ----------
 

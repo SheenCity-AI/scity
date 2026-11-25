@@ -52,6 +52,7 @@ class Settings:
     spend_cap_yuan: float | None = None
     demo_enroll: bool = True
     web_secret: str = ""
+    upload_dir: Path = Path("data/uploads")  # 学生上传的文件（作业截图、图纸）
 
     def prompt(self, name: str, default: str) -> str:
         path = self.private_dir / "prompts" / f"{name}.md"
@@ -83,4 +84,5 @@ def load_settings() -> Settings:
         spend_cap_yuan=float(cap) if cap else None,
         demo_enroll=env.get("SCITY_DEMO_ENROLL", "1") != "0",
         web_secret=env.get("SCITY_WEB_SECRET", ""),
+        upload_dir=Path(env.get("SCITY_UPLOAD_DIR", data_dir / "uploads")),
     )

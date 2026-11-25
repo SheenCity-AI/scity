@@ -310,6 +310,24 @@ class KnowledgePointMajor(Base):
     major_id: Mapped[int] = mapped_column(ForeignKey("major.id"), index=True)
 
 
+class UploadedFile(Base):
+    """学生在课题里上传的一个文件。正文存在服务器的上传目录里，库里只记是谁、哪一局、哪个阶段、哪一项。
+    组里的成员和这个班的任务老师能看；别人拿到链接也打不开。"""
+
+    __tablename__ = "uploaded_file"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("game.id"), index=True)
+    team_id: Mapped[int] = mapped_column(ForeignKey("team.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    stage: Mapped[str] = mapped_column(String(40))
+    field: Mapped[str] = mapped_column(String(80))
+    name: Mapped[str] = mapped_column(String(200))
+    size: Mapped[int] = mapped_column(BigInteger)
+    path: Mapped[str] = mapped_column(String(300))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class KnowledgeMark(Base):
     """一个人在一局课里点亮的一个知识点（实线泡泡的依据）。老师确认分数时写入，按当时的小组成员记到每个人名下。
 

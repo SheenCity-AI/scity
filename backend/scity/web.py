@@ -18,7 +18,8 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi.responses import FileResponse
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 
@@ -346,6 +347,53 @@ def create_app(settings, sessions, spaces: SpaceService, wallets: WalletService,
     @app.post("/api/workspaces/{workspace_id}/game/record")
     def game_record(workspace_id: int, body: PayloadBody, user_id: int = Depends(current_user)) -> dict:
         return act(user_id, workspace_id, lambda game_id, ctx: games.record(game_id, ctx, body.payload))
+
+    @app.post("/api/workspaces/{workspace_id}/game/upload")
+    async def game_upload(workspace_id: int, field: str = Form(...), file: UploadFile = File(...), user_id: int = Depends(current_user)) -> dict:
+        """学生上传一个文件（作业截图、图纸）。返回一个只有本组和任课老师能打开的地址，学生再把它作为这一项交上来。"""
+        ctx, game_id = game_of(user_id, workspace_id)
+        if game_id is None:
+            raise HTTPException(404, "这个课题还没有开局")
+        try:
+            slot = games.upload_slot(game_id, ctx, field)
+        except GameError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        name = os.path.basename((file.filename or "文件").replace("\\", "/"))[:120] or "文件"
+        ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+        if slot["exts"] and ext not in slot["exts"]:
+            raise HTTPException(415, f"这一项只收 {'、'.join(slot['exts'])} 格式的文件")
+        token = uuid4().hex + uuid4().hex[:8]
+        folder = settings.upload_dir / str(game_id)
+        folder.mkdir(parents=True, exist_ok=True)
+        path, size, limit = folder / f"{token}.{ext or 'bin'}", 0, slot["mb"] * 1024 * 1024
+        try:
+            with open(path, "wb") as out:
+                while chunk := await file.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > limit:
+                        raise HTTPException(413, f"文件超过 {slot['mb']}MB 了，压缩一下或拆开再传")
+                    out.write(chunk)
+        except BaseException:
+            path.unlink(missing_ok=True)
+            raise
+        if size == 0:
+            path.unlink(missing_ok=True)
+            raise HTTPException(422, "这是一个空文件")
+        games.save_upload(slot, token, name, size, str(path))
+        log.info("uploaded user=%s workspace=%s game=%s field=%s size=%s", user_id, workspace_id, game_id, field, size)
+        return {"ok": True, "url": f"/api/files/{token}", "name": name, "size": size}
+
+    @app.get("/api/files/{token}")
+    def get_file(token: str, user_id: int = Depends(current_user)):
+        """打开一个上传的文件：同组成员和任课老师能看，别人看到的是“没有这个文件”。"""
+        try:
+            f = games.open_file(token, user_id)
+        except GameError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        inline = f.name.rsplit(".", 1)[-1].lower() in ("jpg", "jpeg", "png", "gif", "webp", "pdf")
+        return FileResponse(f.path, filename=f.name, content_disposition_type="inline" if inline else "attachment",
+                            headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=3600",
+                                     "Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox"})
 
     @app.post("/api/workspaces/{workspace_id}/game/talk")
     async def game_talk(workspace_id: int, body: TalkBody, user_id: int = Depends(current_user)) -> dict:

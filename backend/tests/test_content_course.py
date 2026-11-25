@@ -157,7 +157,9 @@ def test_a_whole_course_runs_from_files_alone(room):
     talk = next(c for c in room.view(room.b)["course"]["page"]["cards"] if c["t"] == "talk")
     assert talk["left"] == 3 and talk["history"] == [{"q": "白板有用吗？", "a": "有用，但晚上得有灯。"}]
     counts = next(c for c in room.view(teacher)["course"]["page"]["cards"] if c["t"] == "kv")
-    assert counts["rows"] == [["第1组", "1 次"], ["第2组", "0 次"]] and "晚上得有灯" not in str(room.view(teacher))
+    assert counts["rows"] == [["第1组", "1 次"], ["第2组", "0 次"]]
+    seen = [c for c in room.view(teacher)["course"]["page"]["cards"] if c["t"] == "talk"]  # 老师能看学生和 AI 角色的对话
+    assert len(seen) == 1 and seen[0]["history"][0]["a"] == "有用，但晚上得有灯。" and not seen[0]["live"]
     brief = course.brief(room.games.state(room.game), "第1组", "student")
     assert "阶段“听使用者怎么说”" in brief and "要不要改方案（不改、小改、大改）" in brief and "出方案 · 预算：3200元" in brief
     assert "每组最多 4 次" not in brief  # 给老师的话不进学生的助手
@@ -237,3 +239,54 @@ def test_points_only_mentioned_light_up_once_their_lesson_is_graded(tmp_path, se
     games.record(game, t, {"scores": {"第1组": {"B1": 7}}})
     touched = course.touched_cards(games.state(game), "第1组")
     assert "K-SJ-007" in touched and "K-SJ-002" in touched and "K-SJ-008" not in touched  # 第 2 次课的还没上
+
+
+def test_students_upload_files_only_their_team_and_teacher_can_open(tmp_path, sessions, spaces, wallets):
+    from types import SimpleNamespace
+
+    from fastapi.testclient import TestClient
+
+    from scity.web import create_app, sign_session
+    from tests.test_web import SECRET, FakeAssistant, FakeLogin
+    shutil.copytree(SAMPLE, tmp_path / "c")
+    path = tmp_path / "c" / "课程.md"
+    path.write_text(path.read_text(encoding="utf-8").replace("| 照片链接 | 文字 | 选填 | 放在网盘里的可以贴链接 |", "| 现场照片 | 文件 | jpg、png、pdf；1MB | 选填 |"), encoding="utf-8")
+    course = ContentCourse(tmp_path / "c")
+    games = GameService(sessions, {course.ref: course}, now=Clock())
+    teacher, a, b, c, outsider = (spaces.ensure_user(x) for x in ("ou_t", "ou_a", "ou_b", "ou_c", "ou_x"))
+    klass = spaces.create_space("class", "一班")
+    ws = spaces.create_workspace(klass, "topic", "校园一角", course.ref)
+    spaces.add_member(teacher, klass, "teacher")
+    for u in (a, b, c):
+        spaces.add_member(u, klass, "student")
+    game = games.create(ws, course.ref, seed="s", teams=[{"name": "第1组", "members": [a, b]}, {"name": "第2组", "members": [c]}])
+    settings = SimpleNamespace(spend_cap_yuan=None, demo_enroll=False, web_secret=SECRET, feishu_app_id="cli_test", upload_dir=tmp_path / "up")
+    app = create_app(settings, sessions, spaces, wallets, FakeAssistant(), FakeLogin(), games=games)
+
+    def client(user):
+        cl = TestClient(app, base_url="https://testserver")
+        cl.cookies.set("scity_session", sign_session(user, SECRET))
+        return cl
+    A, B, C, T, X = (client(u) for u in (a, b, c, teacher, outsider))
+    url = f"/api/workspaces/{ws}/game/upload"
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 2000
+    games.advance(game, spaces.context(teacher, ws))
+    assert A.post(url, data={"field": "现场照片"}, files={"file": ("a.png", png, "image/png")}).status_code == 409  # 开场阶段没有这一项
+    games.advance(game, spaces.context(teacher, ws))
+    assert A.post(url, data={"field": "选的地方"}, files={"file": ("a.png", png, "image/png")}).status_code == 409  # 这一项不是文件
+    assert A.post(url, data={"field": "现场照片"}, files={"file": ("a.exe", b"MZ", "application/octet-stream")}).status_code == 415
+    assert A.post(url, data={"field": "现场照片"}, files={"file": ("big.png", b"0" * (1024 * 1024 + 1), "image/png")}).status_code == 413
+    assert A.post(url, data={"field": "现场照片"}, files={"file": ("e.png", b"", "image/png")}).status_code == 422
+    assert T.post(url, data={"field": "现场照片"}, files={"file": ("a.png", png, "image/png")}).status_code == 409  # 老师不在组里
+    up = A.post(url, data={"field": "现场照片"}, files={"file": ("../../楼梯间.png", png, "image/png")}).json()
+    assert up["name"] == "楼梯间.png" and up["size"] == len(png) and up["url"].startswith("/api/files/")
+    assert list((tmp_path / "up" / str(game)).iterdir())[0].name.endswith(".png")  # 存的文件名是随机的，不用学生起的名字
+    assert len(list((tmp_path / "up" / str(game)).iterdir())) == 1  # 失败的几次没有留下文件
+    for who, code in ((A, 200), (B, 200), (T, 200), (C, 404), (X, 404)):  # 同组和任课老师能看；别的组、外人看不到
+        assert who.get(up["url"]).status_code == code
+    got = B.get(up["url"])
+    assert got.content == png and got.headers["x-content-type-options"] == "nosniff" and "inline" in got.headers["content-disposition"]
+    assert A.post(f"/api/workspaces/{ws}/game/submit", json={"payload": {**SURVEY, "现场照片": up["url"]}}).status_code == 200
+    assert games.state(game).decisions["n02"]["第1组"]["现场照片"] == up["url"]
+    assert A.post(f"/api/workspaces/{ws}/game/submit", json={"payload": {**SURVEY, "现场照片": "/api/files/../../etc/passwd"}}).status_code == 409
+    assert A.get("/api/files/" + "0" * 40).status_code == 404

@@ -184,3 +184,33 @@ def test_a_trial_of_a_content_course_shows_only_what_was_taught(room):
     assert done["finished"] and done["trial"] == 1 and done["course"]["hint"] == "课程已经全部结束。"
     assert set(done["course"]["pages"]) == {"n01", "n02", "n03"} and set(done["course"]["materials"]) == {"n01", "n02", "n03"}
     assert "听使用者" not in str(done) and "出方案" not in str(done["course"])  # 第 2 次课的内容不带
+
+
+def test_link_and_file_fields_take_a_link_until_upload_ships(tmp_path):
+    shutil.copytree(SAMPLE, tmp_path / "c")
+    path = tmp_path / "c" / "课程.md"
+    text = path.read_text(encoding="utf-8").replace("| 照片链接 | 文字 | 选填 | 放在网盘里的可以贴链接 |",
+                                                    "| 照片链接 | 链接 | 选填 | |\n| 现场照片 | 文件 | jpg、png、pdf；20MB | 至少三张 |")
+    path.write_text(text, encoding="utf-8")
+    course = ContentCourse(tmp_path / "c")
+    fields = {f["key"]: f for f in course.nodes["n02"].fields}
+    assert fields["照片链接"]["link"] and "飞书云文档" in fields["照片链接"]["hint"] and not fields["照片链接"]["required"]
+    photo = fields["现场照片"]
+    assert photo["file"] == {"exts": ["jpg", "png", "pdf"], "mb": 20} and "不超过 20MB" in photo["hint"] and photo["hint"].startswith("至少三张")
+    ok = course.validate("n02", {**SURVEY, "现场照片": " https://abc.feishu.cn/docx/xyz "}, None, "第1组")
+    assert ok["现场照片"] == "https://abc.feishu.cn/docx/xyz"
+    with pytest.raises(ValueError, match="以 http 开头的链接"):
+        course.validate("n02", {**SURVEY, "现场照片": "在我电脑上"}, None, "第1组")
+    path.write_text(text.replace("20MB", "80MB"), encoding="utf-8")
+    with pytest.raises(CourseFormatError, match="最大 50MB"):
+        ContentCourse(tmp_path / "c")
+
+
+def test_acceptance_check_ties_knowledge_points_to_blocks(tmp_path):
+    shutil.copytree(SAMPLE, tmp_path / "c")
+    table = tmp_path / "c" / "知识点.csv"
+    table.write_text(table.read_text(encoding="utf-8").replace("K-SJ-004,预算估算,展开,N04", "K-SJ-005,预算估算,展开,") + "K-SJ-006,材料选择,展开,N04\n", encoding="utf-8")
+    found = problems(tmp_path / "c")
+    assert "板块里的知识点 K-SJ-004 不在 知识点.csv 里" in found
+    assert any("K-SJ-005" in x and "没有进任何评价板块" in x for x in found) and any("K-SJ-006" in x and "没有进任何评价板块" in x for x in found)
+    assert any("K-SJ-005" in x and "没有写“出现在”" in x for x in found)

@@ -21,7 +21,8 @@ from .course import Stage
 
 COURSE_FILE = "课程.md"
 ENDS = {"老师": "teacher", "到点": "timer", "到点或全交": "timer_or_all"}
-KINDS = ("单选", "多选", "数字", "文字", "长文字")
+KINDS = ("单选", "多选", "数字", "文字", "长文字", "链接", "文件")
+MAX_FILE_MB = 50  # 学生上传的单个文件上限（11-25 小宇哥定）
 DEFAULT_TURNS = 5
 SHOW = 120  # 老师的表里，一格最多显示多少字
 
@@ -70,6 +71,17 @@ def _field(cells: list[str], where: str) -> dict:
             out.update(type="number", min=float(span.group(1)), max=float(span.group(2)), unit=span.group(3).strip())
         else:
             out.update(type="number", unit=spec)
+    elif kind == "链接":
+        out.update(type="text", link=True, max=500, hint=hint or "贴飞书云文档的链接，并把权限开给老师")
+    elif kind == "文件":
+        exts = [e.lower().lstrip(".") for e in re.findall(r"\.?([A-Za-z0-9]{2,5})(?=[、，,；;\s]|$)", spec.split("；")[0].split(";")[0])]
+        mb = re.search(r"(\d+)\s*MB", spec, re.I)
+        size = int(mb.group(1)) if mb else MAX_FILE_MB
+        if size > MAX_FILE_MB:
+            raise CourseFormatError(f"{where}：“{label}”单个文件最大 {MAX_FILE_MB}MB，现在写的是 {size}MB")
+        # 上传功能上线前，先收飞书云文档或网盘的链接
+        out.update(type="text", link=True, max=500, file={"exts": exts, "mb": size},
+                   hint=(hint + "；" if hint else "") + f"上传功能上线前，先贴飞书云文档或网盘的链接（{'、'.join(exts) or '任意格式'}，不超过 {size}MB）")
     else:
         most = re.search(r"(\d+)\s*字", spec)
         out.update(type="text", max=int(most.group(1)) if most else (600 if kind == "长文字" else 100))
@@ -188,7 +200,7 @@ def read_blocks(folder: Path, lessons: set[int]) -> tuple[list[dict], dict]:
                 code = (row.get("编号") or "").strip()
                 if code:
                     points[code] = {"name": (row.get("名称") or "").strip(), "deep": (row.get("深度") or "展开").strip() != "点到",
-                                    "stages": [x.lower() for x in re.findall(r"N\d{2,3}", row.get("出现在") or "", flags=re.I)]}
+                                    "stages": [x.lower() for x in re.findall(r"N\d{2,3}", row.get("出现在") or "", flags=re.I)], "listed": True}
     blocks, cur = [], None
     path = Path(folder) / "评价板块.md"
     for line in path.read_text(encoding="utf-8").splitlines() if path.is_file() else []:
@@ -239,6 +251,17 @@ def problems(folder: Path) -> list[str]:
                 if code in seen:
                     out.append(f"知识点 {code} 同时在板块 {seen[code]} 和 {b['id']} 里，一个知识点只进一个板块")
                 seen[code] = b["id"]
+        listed = (Path(folder) / "知识点.csv").is_file()
+        in_blocks = {c for b in course.blocks for c in b["cards"]}
+        if listed:
+            table = {c for c, v in course.points.items() if v.get("listed")}
+            for code in sorted(in_blocks - table):
+                out.append(f"板块里的知识点 {code} 不在 知识点.csv 里")
+            for code in sorted(table - in_blocks):
+                if course.points[code]["deep"]:
+                    out.append(f"“展开”的知识点 {code} 没有进任何评价板块，老师的分落不到它上面")
+            for code in sorted(c for c in table if not course.points[c]["stages"]):
+                out.append(f"知识点 {code} 没有写“出现在”哪些阶段，图上的颜色会一直是最浅的")
         for n in sorted({s.lesson for s in course.stages} - {b["lesson"] for b in course.blocks}):
             out.append(f"第 {n} 次课没有评价板块（可以没有，但这次课就不打分）")
     if not any(n.fields for n in course.nodes.values()):
@@ -300,6 +323,8 @@ class ContentCourse:
                 raw = int(raw) if raw == int(raw) else raw
             else:
                 raw = str(raw).strip()
+                if f.get("link") and not re.match(r"https?://\S+$", raw):
+                    raise ValueError(f"“{f['label']}”要贴一个以 http 开头的链接")
                 if len(raw) > f["max"]:
                     raise ValueError(f"“{f['label']}”最多 {f['max']} 字，现在 {len(raw)} 字")
             out[f["key"]] = raw

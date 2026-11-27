@@ -73,6 +73,31 @@ class GameService:
         with self._sessions() as db:
             return db.scalar(select(Game.id).where(Game.workspace_id == workspace_id, Game.archived_at.is_(None)))
 
+    def cover(self, workspace_id: int) -> dict | None:
+        """课题页的展示封面：这个工作区最近一局用的课程（名称、图、每次课的名字），加上课上到第几次。没开过局返回 None。"""
+        with self._sessions() as db:
+            game = db.scalar(select(Game).where(Game.workspace_id == workspace_id)
+                             .order_by(Game.archived_at.is_not(None), Game.id.desc()).limit(1))
+            course = self._courses.get(game.course_ref) if game else None
+            if course is None:
+                return None
+            lessons = sorted({s.lesson for s in course.stages})
+            make = getattr(course, "cover", None)
+            info = dict(make()) if make else {"name": getattr(course, "name", game.course_ref), "lessons": []}
+            names = list(info.get("lessons") or [])
+            names += [f"第 {n} 次课" for n in lessons[len(names):]]
+            if game.last_lesson:
+                lessons = [n for n in lessons if n <= game.last_lesson]
+            lesson_of = {s.key: s.lesson for s in course.stages}
+            now = lesson_of.get(game.stage) if game.stage else None
+            done = game.finished_at is not None
+            info["lessons"] = [{"name": names[i] if i < len(names) else f"第 {n} 次课",
+                                "state": "d" if done or (now and n < now) else "c" if n == now else ""}
+                               for i, n in enumerate(lessons)]
+            info["status"] = "已结束" if done else "未开始" if now is None else f"第 {now} 次课进行中"
+            info["trial"] = bool(game.last_lesson)
+            return info
+
     def version(self, game_id: int) -> int:
         with self._sessions() as db:
             return db.get(Game, game_id).version

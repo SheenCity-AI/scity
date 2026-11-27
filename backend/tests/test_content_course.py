@@ -28,6 +28,7 @@ def room(sessions, spaces):
     spaces.add_member(r.teacher, klass, "teacher")
     for user in (r.a, r.b, r.c):
         spaces.add_member(user, klass, "student")
+    r.ws = ws
     r.ctx = lambda user: spaces.context(user, ws)
     r.game = r.games.create(ws, r.course.ref, seed="s", teams=[{"name": "第1组", "members": [r.a, r.b]}, {"name": "第2组", "members": [r.c]}])
     r.next = lambda: r.games.advance(r.game, r.ctx(r.teacher))
@@ -290,3 +291,31 @@ def test_students_upload_files_only_their_team_and_teacher_can_open(tmp_path, se
     assert games.state(game).decisions["n02"]["第1组"]["现场照片"] == up["url"]
     assert A.post(f"/api/workspaces/{ws}/game/submit", json={"payload": {**SURVEY, "现场照片": "/api/files/../../etc/passwd"}}).status_code == 409
     assert A.get("/api/files/" + "0" * 40).status_code == 404
+
+
+def test_cover_shows_course_name_lessons_and_progress(room, tmp_path):
+    ws = room.ws
+    cover = room.games.cover(ws)
+    assert cover["name"] == "校园一角改造" and cover["image"] == "" and cover["status"] == "未开始"
+    assert [x["name"] for x in cover["lessons"]] == ["调研和定题", "方案和反馈"] and {x["state"] for x in cover["lessons"]} == {""}
+    room.next()
+    assert [x["state"] for x in room.games.cover(ws)["lessons"]] == ["c", ""]
+    assert room.games.cover(ws)["status"] == "第 1 次课进行中" and room.games.cover(ws + 99) is None
+    from scity.models import Game, utcnow
+    with room.games._sessions() as db:  # 直接把这一局拨到第 2 次课、再拨到结束，看进度条
+        game = db.get(Game, room.game)
+        game.stage = next(s.key for s in room.course.stages if s.lesson == 2)
+        db.commit()
+        assert [x["state"] for x in room.games.cover(ws)["lessons"]] == ["d", "c"]
+        game.stage, game.finished_at = None, utcnow()
+        db.commit()
+    assert [x["state"] for x in room.games.cover(ws)["lessons"]] == ["d", "d"] and room.games.cover(ws)["status"] == "已结束"
+
+    shutil.copytree(SAMPLE, tmp_path / "c")
+    head = tmp_path / "c" / "课程.md"
+    head.write_text(head.read_text(encoding="utf-8").replace("- 版本：0.1", "- 版本：0.1\n- 封面：楼梯间.jpg"), encoding="utf-8")
+    assert ContentCourse(tmp_path / "c").cover()["image"] == "img/courses/campus-corner/楼梯间.jpg"
+    assert any("图片/ 里没有这个文件" in x for x in problems(tmp_path / "c"))
+    (tmp_path / "c" / "图片").mkdir()
+    (tmp_path / "c" / "图片" / "楼梯间.jpg").write_bytes(b"x")
+    assert not any("封面" in x for x in problems(tmp_path / "c"))

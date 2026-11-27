@@ -206,6 +206,7 @@ def create_app(settings, sessions, spaces: SpaceService, wallets: WalletService,
                 "id": w.id, "name": w.name, "kind": w.kind, "category": w.category,
                 "space": spaces.space_path(w.space_id), "role": roles[w.space_id],
                 "assistant": persona_for(Context(user_id, w.space_id, w.id, roles[w.space_id], w.category)).title,
+                "course": games.cover(w.id) if games and w.kind == "topic" else None,
             } for w in spaces.workspaces(user_id)],
         }
 

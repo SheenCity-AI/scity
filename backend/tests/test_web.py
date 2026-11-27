@@ -105,7 +105,7 @@ def test_login_sets_cookie_and_me_lists_own_workspaces(web, spaces):
     assert me["user"] == {"id": web.student, "name": "林晓"}  # 第一次登录时补上姓名
     assert me["wallet"] == {"subsidy": 100, "balance": 0}
     assert me["workspaces"] == [{"id": web.topic, "name": "沙盘", "kind": "topic", "category": "learning",
-                                 "space": "甲学校 / 一班", "role": "student", "assistant": "SCity 助手"}]
+                                 "space": "甲学校 / 一班", "role": "student", "assistant": "SCity 助手", "course": None}]
 
 
 def test_chat_streams_then_charges_the_right_place(web, wallets, spaces):

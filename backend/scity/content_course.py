@@ -93,8 +93,9 @@ def _field(cells: list[str], where: str) -> dict:
 def parse(folder: Path) -> dict:
     """读课程.md，返回 {name, code, version, about, nodes}。写得不对就抛 CourseFormatError。"""
     path = Path(folder) / COURSE_FILE
-    meta = {"name": "", "编号": "", "版本": "", "说明": ""}
+    meta = {"name": "", "编号": "", "版本": "", "说明": "", "副标题": "", "封面": ""}
     nodes: list[Node] = []
+    titles: dict[int, str] = {}
     lesson, node, part, buf = 0, None, None, []
 
     def flush() -> None:
@@ -153,12 +154,13 @@ def parse(folder: Path) -> dict:
         elif line.startswith("## "):
             flush(), close_stage()
             node = None
-            found = re.match(r"## 第\s*(\d+)\s*次课", line)
+            found = re.match(r"## 第\s*(\d+)\s*次课\s*(.*)", line)
             if not found:
                 raise CourseFormatError(f"{path.name} 第 {no} 行：二级标题要写成“## 第 1 次课 课名”")
             if int(found.group(1)) < lesson:
                 raise CourseFormatError(f"{path.name} 第 {no} 行：课次要从小到大排")
             lesson = int(found.group(1))
+            titles[lesson] = found.group(2).strip()
         elif line.startswith("### "):
             flush(), close_stage()
             found = re.match(r"### (N\d{2,3})\s+(.+)", line)
@@ -187,7 +189,8 @@ def parse(folder: Path) -> dict:
         raise CourseFormatError(f"{path.name}：开头要有“# 课程名称”“- 编号：小写英文字母、数字和短横线”“- 版本：0.1 这样的两段数字”")
     if not nodes:
         raise CourseFormatError(f"{path.name}：一个阶段都没有")
-    return {"name": meta["name"], "code": meta["编号"], "version": meta["版本"], "about": meta["说明"], "nodes": nodes}
+    return {"name": meta["name"], "code": meta["编号"], "version": meta["版本"], "about": meta["说明"], "nodes": nodes,
+            "subtitle": meta["副标题"], "cover": meta["封面"], "titles": titles}
 
 
 def read_blocks(folder: Path, lessons: set[int]) -> tuple[list[dict], dict]:
@@ -235,6 +238,11 @@ def problems(folder: Path) -> list[str]:
     except CourseFormatError as exc:
         return [str(exc)]
     out = []
+    declared = parse(folder)["cover"].strip().removeprefix("图片/")
+    if declared and not course.cover()["image"]:
+        out.append(f"课程.md 的“封面：{declared}”要写 图片/ 里的一个 jpg、png 或 webp 文件名，不要带路径和空格")
+    elif declared and not (Path(folder) / "图片" / declared).is_file():
+        out.append(f"课程.md 写了“封面：{declared}”，但 图片/ 里没有这个文件")
     if not course.blocks:
         out.append("没有评价板块.md：老师打不了分，学生的知识图谱长不出来")
     else:
@@ -276,12 +284,23 @@ def _text(title: str, body: str, tone: str = "") -> dict:
     return {"t": "text", "title": title, "body": body, "tone": tone}
 
 
+def cover_path(folder: Path, code: str, name: str) -> str:
+    """封面图：课程.md 里写了“- 封面：文件名”就用 图片/ 里的那张，没写但有 图片/封面.jpg 也用它；页面上的地址是 img/courses/<编号>/<文件名>。"""
+    name = name.strip().removeprefix("图片/")
+    if not name:
+        name = next((n for n in ("封面.jpg", "封面.png", "cover.jpg", "cover.png") if (Path(folder) / "图片" / n).is_file()), "")
+    return f"img/courses/{code}/{name}" if re.fullmatch(r"[^/\\\s'\"()]+\.(jpg|jpeg|png|webp)", name, re.I) else ""
+
+
 class ContentCourse:
     def __init__(self, folder: Path):
         folder = Path(folder)
         data = parse(folder)
         self.name, self.about = data["name"], data["about"]
         self.ref = f"{data['code']}@{data['version']}"
+        self._cover = {"name": self.name, "subtitle": data["subtitle"], "about": self.about,
+                       "image": cover_path(folder, data["code"], data["cover"]),
+                       "lessons": [data["titles"][n] or f"第 {n} 次课" for n in sorted(data["titles"])]}
         self.nodes: dict[str, Node] = {n.stage.key: n for n in data["nodes"]}
         self.stages = [n.stage for n in data["nodes"]]
         self.blocks, self.points = read_blocks(folder, {s.lesson for s in self.stages})
@@ -294,6 +313,10 @@ class ContentCourse:
                 self.glossary[key] = ""
             elif key and line.strip():
                 self.glossary[key] += line.strip()
+
+    def cover(self) -> dict:
+        """课题页上的展示封面。"""
+        return dict(self._cover)
 
     # ---------- 填报 ----------
 
